@@ -1319,7 +1319,7 @@ function renderAbout(container) {
       <div class="card" style="margin-bottom:var(--space-4)">
         <div class="card-title" style="margin-bottom:var(--space-3)">Quick Start</div>
         <pre class="mono" style="font-size:var(--text-xs);background:var(--color-surface-2);padding:var(--space-4);border-radius:var(--radius-md);overflow-x:auto;line-height:1.8;color:var(--color-text-muted)"><span style="color:var(--color-text-faint)"># Clone the repo</span>
-git clone https://github.com/anthonymiao/kiln.git
+git clone https://github.com/anthony-maio/kiln.git
 cd kiln
 
 <span style="color:var(--color-text-faint)"># Run with Docker</span>

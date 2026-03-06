@@ -5,7 +5,7 @@ Thanks for contributing.
 ## Development setup
 
 ```bash
-git clone https://github.com/anthonymiao/kiln.git
+git clone https://github.com/anthony-maio/kiln.git
 cd kiln
 pip install -r requirements-dev.txt
 python api_server.py

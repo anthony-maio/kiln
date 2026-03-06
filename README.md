@@ -30,7 +30,7 @@ Other stages are manual/mock unless you integrate them.
 ### Docker
 
 ```bash
-git clone https://github.com/anthonymiao/kiln.git
+git clone https://github.com/anthony-maio/kiln.git
 cd kiln
 docker compose up --build
 ```
@@ -40,7 +40,7 @@ Open `http://localhost:8080`.
 ### Local
 
 ```bash
-git clone https://github.com/anthonymiao/kiln.git
+git clone https://github.com/anthony-maio/kiln.git
 cd kiln
 pip install -r requirements.txt
 python api_server.py
