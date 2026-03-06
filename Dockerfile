@@ -3,7 +3,8 @@ FROM python:3.11-slim
 WORKDIR /app
 
 # Install dependencies
-RUN pip install --no-cache-dir fastapi uvicorn
+COPY requirements.txt .
+RUN pip install --no-cache-dir -r requirements.txt
 
 # Copy application files
 COPY api_server.py .
@@ -11,6 +12,7 @@ COPY index.html .
 COPY base.css .
 COPY style.css .
 COPY app.js .
+COPY adapters ./adapters
 
 # Create data directory for SQLite
 RUN mkdir -p /app/data

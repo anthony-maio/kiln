@@ -1,16 +1,33 @@
-# 🔥 Kiln
+# Kiln
 
-**Open-source LLMOps pipeline manager. Take models from training to production.**
+Local-first LLM release gate for open-source model builders.
 
-Kiln orchestrates the 8 stages between "my model trained" and "my model is in production": academic benchmarks, safety evaluation, documentation, packaging, inference serving, monitoring, incident response, and continuous improvement.
+Kiln helps you track model release readiness across 8 stages, then export a shareable report.  
+v0.1 is intentionally small: one real adapter path (benchmarks), local single-user runtime, no auth.
 
-Ships with **mock mode** for instant demos and **pluggable backends** for real evaluation pipelines.
+## What v0.1 actually does
 
----
+- Run lifecycle tracking (`mock` or `real` mode)
+- Stage-level status management across 8 pipeline stages
+- Release readiness report:
+  - JSON: `GET /api/runs/{id}/release-report`
+  - Markdown: `GET /api/runs/{id}/release-report?format=markdown`
+- Frontend export button for Markdown report downloads
+- Real benchmark adapter script for `lm-eval-harness`:
+  - [`adapters/lm_eval_adapter.py`](adapters/lm_eval_adapter.py)
 
-## Quick Start
+## What v0.1 does not do
 
-### Docker (Recommended)
+- Multi-user auth/roles
+- Hosted deployment workflow
+- Real adapters for all 8 stages
+
+Only the **benchmarks** stage has a real adapter in this release.  
+Other stages are manual/mock unless you integrate them.
+
+## Quickstart
+
+### Docker
 
 ```bash
 git clone https://github.com/anthonymiao/kiln.git
@@ -18,9 +35,9 @@ cd kiln
 docker compose up --build
 ```
 
-Open [http://localhost:8080](http://localhost:8080). Demo data is auto-seeded.
+Open `http://localhost:8080`.
 
-### Local (No Docker)
+### Local
 
 ```bash
 git clone https://github.com/anthonymiao/kiln.git
@@ -29,229 +46,93 @@ pip install -r requirements.txt
 python api_server.py
 ```
 
-Open [http://localhost:8000](http://localhost:8000).
+Open `http://localhost:8000`.
 
----
+## First useful run (real mode)
 
-## What It Does
+1. Register a model in the UI.
+2. Start a new run with `mode=real`.
+3. Run benchmark adapter (example):
 
-Kiln manages the full model-to-production lifecycle through 8 pipeline stages:
-
-| # | Stage | What It Does | Real-Mode Tools |
-|---|-------|-------------|-----------------|
-| 1 | **Academic Benchmarks** | MMLU, HellaSwag, ARC, WinoGrande, TruthfulQA, GSM8K | [lm-eval-harness](https://github.com/EleutherAI/lm-eval-harness) |
-| 2 | **Safety Evaluation** | Toxicity, bias (CrowS-Pairs), truthfulness, red teaming | [Perspective API](https://perspectiveapi.com/), [HarmBench](https://github.com/centerforaisafety/HarmBench) |
-| 3 | **Documentation** | Model card checklist, NIST AI RMF alignment, intended use | HuggingFace model card template |
-| 4 | **Packaging** | HuggingFace upload, GGUF/AWQ quantization variants | [llama.cpp](https://github.com/ggerganov/llama.cpp), [AutoAWQ](https://github.com/casper-hansen/AutoAWQ) |
-| 5 | **Inference Serving** | API endpoint health, latency metrics (TTFT, TPOT), load testing | [vLLM](https://github.com/vllm-project/vllm), [TGI](https://github.com/huggingface/text-generation-inference) |
-| 6 | **Production Monitoring** | Drift detection, toxicity sampling, performance tracking | [Prometheus](https://prometheus.io/) + [Grafana](https://grafana.com/), [whylogs](https://whylabs.ai/) |
-| 7 | **Incident Response** | Incident tracking, severity, runbook status, kill switch verification | Custom |
-| 8 | **Continuous Improvement** | Action items, review schedules, feedback collection | Custom |
-
-### Two Modes
-
-- **Mock Mode** — Generates realistic simulated results instantly. No GPU, no API keys. Perfect for demos, learning, and portfolio display.
-- **Real Mode** — Plugs into actual evaluation frameworks. Requires GPU access and API credentials. (Adapter interfaces in development.)
-
----
-
-## Features
-
-- **Pipeline Visualization** — Visual flow of all 8 stages with status, duration, and clickable drill-down
-- **Benchmark Dashboard** — Score bars with pass/fail thresholds, baseline comparisons, and ablation summaries
-- **Safety Reports** — Toxicity metrics, bias breakdown by category (gender, race, religion, etc.), red team status
-- **Documentation Checklist** — Track model card completeness with NIST AI RMF alignment
-- **Packaging Tracker** — Monitor HuggingFace upload and quantized variant status (GGUF, AWQ, BF16)
-- **Serving Metrics** — TTFT, TPOT, throughput, GPU utilization, KV cache stats, load test results
-- **Monitoring Dashboard** — Drift detection, error rates, toxicity sampling, uptime
-- **Incident Management** — Track incidents by severity (P0-P3), resolution status, postmortems
-- **Model Registry** — Register and manage multiple models with run history
-- **Dark/Light Mode** — Full theme support
-- **Run Comparison** — Start new pipeline runs and compare results across versions
-
----
-
-## Architecture
-
-```
-┌──────────────────────────────────────────────┐
-│                  Browser                      │
-│  Dashboard, Pipeline View, Stage Details      │
-│  (HTML/CSS/JS — no build step required)       │
-└────────────────────┬─────────────────────────┘
-                     │ REST API
-┌────────────────────▼─────────────────────────┐
-│              FastAPI Backend                   │
-│  /api/dashboard  /api/models  /api/runs       │
-│  /api/incidents  /api/activity                 │
-│  Mock data generator + real adapter interface  │
-└────────────────────┬─────────────────────────┘
-                     │
-┌────────────────────▼─────────────────────────┐
-│              SQLite Database                   │
-│  models, pipeline_runs, pipeline_stages,       │
-│  incidents, activity_log                       │
-└──────────────────────────────────────────────┘
+```bash
+python adapters/lm_eval_adapter.py \
+  --model-id your-org/your-model \
+  --run-id 1 \
+  --api-url http://localhost:8000
 ```
 
-**Zero build tools.** The frontend is plain HTML, CSS, and vanilla JavaScript. No npm, no webpack, no React. Just open `index.html`.
+4. Complete remaining stages manually (or keep as pending/warning).
+5. Export release report from run detail view, or call:
 
-**Two dependencies.** The entire backend needs only `fastapi` and `uvicorn`. That's it.
+```bash
+curl "http://localhost:8000/api/runs/1/release-report?format=markdown"
+```
 
----
+## Verdict logic
 
-## API Reference
+- `blocked`: any stage is `failed`
+- `needs_review`: no failures, but at least one `warning`, `pending`, or `running`
+- `ready`: all stages are `passed` or `skipped`
 
-### Dashboard
-| Method | Path | Description |
-|--------|------|-------------|
-| GET | `/api/dashboard` | Aggregated stats, recent activity, models |
-| GET | `/api/health` | Health check |
+## Configuration
+
+Environment variables:
+
+- `KILN_DB_PATH` (default: `./kiln.db`)
+- `KILN_CORS_ORIGINS` (comma-separated; default localhost-only origins)
+- `KILN_ENABLE_SEED_ENDPOINT` (`true` to enable `POST /api/seed`; default disabled)
+
+## API reference (v0.1)
+
+### Health and dashboard
+
+- `GET /api/health`
+- `GET /api/dashboard`
 
 ### Models
-| Method | Path | Description |
-|--------|------|-------------|
-| GET | `/api/models` | List all models |
-| GET | `/api/models/{id}` | Model details with runs and incidents |
-| POST | `/api/models` | Register a new model |
 
-### Pipeline Runs
-| Method | Path | Description |
-|--------|------|-------------|
-| GET | `/api/runs` | List runs (filter by `model_id`, `status`) |
-| GET | `/api/runs/{id}` | Run details with all stage results |
-| POST | `/api/runs` | Start a new run (`mode`: "mock" or "real") |
+- `GET /api/models`
+- `GET /api/models/{id}`
+- `POST /api/models`
 
-### Pipeline Stages
-| Method | Path | Description |
-|--------|------|-------------|
-| POST | `/api/runs/{id}/stages/{key}/start` | Mark stage as running |
-| POST | `/api/runs/{id}/stages/{key}/complete` | Complete stage with results |
+### Runs
+
+- `GET /api/runs`
+- `GET /api/runs/{id}`
+- `POST /api/runs` (`mode`: `mock | real`)
+- `GET /api/runs/{id}/release-report`
+- `GET /api/runs/{id}/release-report?format=markdown`
+
+### Stages
+
+- `POST /api/runs/{id}/stages/{key}/start`
+- `POST /api/runs/{id}/stages/{key}/complete` (`status`: `passed | failed | warning | skipped`)
 
 ### Incidents
-| Method | Path | Description |
-|--------|------|-------------|
-| GET | `/api/incidents` | List incidents (filter by `model_id`, `status`) |
-| POST | `/api/incidents` | Create incident |
 
-### Utility
-| Method | Path | Description |
-|--------|------|-------------|
-| GET | `/api/activity` | Activity log (default 30 entries) |
-| POST | `/api/seed` | Reset and reseed demo data |
+- `GET /api/incidents`
+- `POST /api/incidents` (`severity`: `P0 | P1 | P2 | P3`)
 
----
+### Utilities
 
-## Extending Kiln
+- `GET /api/activity`
+- `POST /api/seed` (disabled unless `KILN_ENABLE_SEED_ENDPOINT=true`)
 
-### Adding a Real Backend Adapter
+## Development
 
-To connect a real evaluation tool (e.g., lm-eval-harness), create an adapter that:
-
-1. Accepts a model identifier and stage configuration
-2. Runs the actual evaluation
-3. Returns results in Kiln's expected JSON format
-4. Calls `POST /api/runs/{id}/stages/{key}/complete` with the results
-
-Example adapter structure:
-
-```python
-# adapters/benchmarks.py
-
-import subprocess
-import json
-
-def run_benchmarks(model_id: str, run_id: int, api_url: str):
-    """Run lm-eval-harness and report results to Kiln."""
-
-    # Run the evaluation
-    result = subprocess.run([
-        "lm_eval", "--model", "hf",
-        "--model_args", f"pretrained={model_id},dtype=bfloat16",
-        "--tasks", "mmlu,hellaswag,arc_challenge,winogrande,truthfulqa_mc2,gsm8k",
-        "--batch_size", "auto",
-        "--output_path", "./eval_results"
-    ], capture_output=True)
-
-    # Parse results and format for Kiln
-    results = parse_lm_eval_output("./eval_results")
-
-    # Report back to Kiln
-    import requests
-    requests.post(
-        f"{api_url}/api/runs/{run_id}/stages/benchmarks/complete",
-        json={"status": "passed", "results": results}
-    )
+```bash
+pip install -r requirements-dev.txt
+pytest -q
+python -m py_compile api_server.py adapters/lm_eval_adapter.py
+node --check app.js
 ```
 
-### Adding Custom Stages
-
-Modify `STAGE_DEFINITIONS` in `api_server.py`:
-
-```python
-STAGE_DEFINITIONS = [
-    ("benchmarks", "Academic Benchmarks", 1),
-    ("safety", "Safety Evaluation", 2),
-    # ... existing stages ...
-    ("custom_eval", "My Custom Evaluation", 9),  # Add your stage
-]
-```
-
-Then add a corresponding renderer in `app.js`:
-
-```javascript
-case "custom_eval":
-  return renderCustomEvalResults(results);
-```
-
----
-
-## Project Structure
-
-```
-kiln/
-├── api_server.py       # FastAPI backend (pipeline orchestration, mock data, SQLite)
-├── index.html          # Dashboard entry point
-├── base.css            # CSS reset and base styles
-├── style.css           # Design tokens and component styles
-├── app.js              # Frontend application (vanilla JS, no framework)
-├── Dockerfile          # Container definition
-├── docker-compose.yml  # One-command deployment
-├── requirements.txt    # Python dependencies (fastapi, uvicorn)
-├── LICENSE             # MIT
-└── README.md           # This file
-```
-
-**Total size: ~120KB.** No node_modules. No build artifacts. No framework overhead.
-
----
+CI runs the same checks on pull requests.
 
 ## Contributing
 
-Contributions welcome. Some ideas:
-
-- [ ] **Real adapters** — Connect lm-eval-harness, Perspective API, HarmBench
-- [ ] **Webhook notifications** — Slack/Discord alerts on stage completion or failure
-- [ ] **Model comparison** — Side-by-side benchmark comparison across model versions
-- [ ] **Export** — PDF/CSV export of pipeline reports
-- [ ] **CI/CD integration** — GitHub Actions workflow that triggers pipeline runs on model push
-- [ ] **User auth** — Multi-user support with role-based access
-- [ ] **Scheduled runs** — Cron-based automatic re-evaluation
-
----
-
-## Background
-
-Training a model is maybe 20% of the work. The other 80% is everything that happens after: evaluating whether it's safe, benchmarking it against the field, packaging it for deployment, monitoring it in production, and having a plan for when things go wrong.
-
-This project was born from writing an [LLMOps production pipeline document](https://github.com/anthonymiao/kiln/blob/main/docs/LLMOPS_PIPELINE.md) for [Eve-3-SABER-1B](https://huggingface.co/anthonym21/Eve-3-SABER-1B), a 1B parameter dense transformer with novel SABER attention architecture. Rather than let the pipeline live as a static document, Kiln makes it interactive, visual, and reusable for any model.
-
----
+See [CONTRIBUTING.md](CONTRIBUTING.md), [SECURITY.md](SECURITY.md), and [CODE_OF_CONDUCT.md](CODE_OF_CONDUCT.md).
 
 ## License
 
-MIT — see [LICENSE](LICENSE).
-
----
-
-**Built by [Anthony Maio](https://making-minds.ai) — Making Minds AI**
+MIT. See [LICENSE](LICENSE).

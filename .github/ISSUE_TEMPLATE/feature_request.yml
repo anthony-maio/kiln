@@ -1,0 +1,31 @@
+name: Feature request
+description: Suggest an improvement for Kiln.
+title: "[Feature]: "
+labels: ["enhancement"]
+body:
+  - type: textarea
+    id: problem
+    attributes:
+      label: Problem statement
+      description: What problem are you trying to solve?
+      placeholder: I cannot automate benchmark stage completion from lm-eval output.
+    validations:
+      required: true
+
+  - type: textarea
+    id: proposal
+    attributes:
+      label: Proposed solution
+      description: What should Kiln do?
+      placeholder: Add a CLI adapter that parses lm-eval JSON and updates the benchmarks stage.
+    validations:
+      required: true
+
+  - type: textarea
+    id: alternatives
+    attributes:
+      label: Alternatives considered
+      description: Any workaround you tried.
+      placeholder: I used manual stage completion and pasted scores by hand.
+    validations:
+      required: false

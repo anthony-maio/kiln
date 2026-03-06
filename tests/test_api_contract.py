@@ -86,6 +86,20 @@ def test_create_incident_returns_404_for_missing_model(tmp_path, monkeypatch):
         assert response.status_code == 404
 
 
+def test_create_incident_rejects_invalid_severity(tmp_path, monkeypatch):
+    module = load_app(tmp_path, monkeypatch)
+    with TestClient(module.app) as client:
+        response = client.post(
+            "/api/incidents",
+            json={
+                "model_id": 1,
+                "severity": "SEVERE",
+                "title": "Bad severity",
+            },
+        )
+        assert response.status_code == 422
+
+
 def test_seed_endpoint_forbidden_by_default(tmp_path, monkeypatch):
     module = load_app(tmp_path, monkeypatch, seed_enabled=False)
     with TestClient(module.app) as client:

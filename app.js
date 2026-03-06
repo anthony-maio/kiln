@@ -5,7 +5,22 @@
 // - In Perplexity deployment: port/8000 gets replaced with the proxy path
 // - In Docker/standalone: the literal string remains, so we fall back to same-origin
 const _PROXY_URL = "port/8000";
-const API = _PROXY_URL.includes("PORT_8000") ? "" : _PROXY_URL;
+
+function resolveApiBase(rawBase) {
+  const value = (rawBase || "").trim();
+  if (!value || value === "port/8000" || value.includes("PORT_8000")) {
+    return "";
+  }
+  if (value.startsWith("http://") || value.startsWith("https://")) {
+    return value.replace(/\/+$/, "");
+  }
+  if (value.startsWith("/")) {
+    return value.replace(/\/+$/, "");
+  }
+  return "";
+}
+
+const API = resolveApiBase(window.__KILN_API_BASE__ || _PROXY_URL);
 
 let currentView = "dashboard";
 let dashboardData = null;
@@ -98,7 +113,7 @@ async function apiFetch(path) {
   if (!res.ok) {
     throw new Error(`API error: ${res.status}`);
   }
-  return res.json();
+  return sanitizeData(await res.json());
 }
 
 async function apiPost(path, body) {
@@ -110,10 +125,54 @@ async function apiPost(path, body) {
   if (!res.ok) {
     throw new Error(`API error: ${res.status}`);
   }
-  return res.json();
+  return sanitizeData(await res.json());
+}
+
+async function apiFetchText(path) {
+  const res = await fetch(`${API}${path}`);
+  if (!res.ok) {
+    throw new Error(`API error: ${res.status}`);
+  }
+  return res.text();
 }
 
 /* ===== Helpers ===== */
+
+function escapeHtml(value) {
+  return String(value)
+    .replaceAll("&", "&amp;")
+    .replaceAll("<", "&lt;")
+    .replaceAll(">", "&gt;")
+    .replaceAll('"', "&quot;")
+    .replaceAll("'", "&#39;");
+}
+
+function sanitizeData(value) {
+  if (typeof value === "string") {
+    return escapeHtml(value);
+  }
+  if (Array.isArray(value)) {
+    return value.map(sanitizeData);
+  }
+  if (value && typeof value === "object") {
+    const sanitized = {};
+    Object.keys(value).forEach((key) => {
+      sanitized[key] = sanitizeData(value[key]);
+    });
+    return sanitized;
+  }
+  return value;
+}
+
+function downloadTextFile(filename, content) {
+  const blob = new Blob([content], { type: "text/plain;charset=utf-8" });
+  const url = URL.createObjectURL(blob);
+  const anchor = document.createElement("a");
+  anchor.href = url;
+  anchor.download = filename;
+  anchor.click();
+  URL.revokeObjectURL(url);
+}
 
 function timeAgo(dateStr) {
   if (!dateStr) {
@@ -594,9 +653,14 @@ async function renderRunDetail(container, runId) {
       <div style="display:flex;align-items:center;gap:var(--space-3)">
         <strong style="font-size:var(--text-lg)">${run.model_name}</strong>
         ${badgeHTML(run.status)}
-        <span class="mono" style="font-size:var(--text-xs);color:var(--color-text-faint)">Run #${run.id} · ${run.trigger}</span>
+        <span class="mono" style="font-size:var(--text-xs);color:var(--color-text-faint)">Run #${run.id} · ${run.mode || "mock"} · ${run.trigger}</span>
       </div>
-      <button class="btn btn-secondary btn-sm" onclick="navigate('runs')">Back to Runs</button>
+      <div style="display:flex;gap:var(--space-2)">
+        <button class="btn btn-primary btn-sm" onclick="exportReleaseReport(${run.id})">
+          Export Report
+        </button>
+        <button class="btn btn-secondary btn-sm" onclick="navigate('runs')">Back to Runs</button>
+      </div>
     </div>
 
     <div class="kpi-grid animate-in" style="margin-bottom:var(--space-4)">
@@ -639,6 +703,17 @@ async function renderRunDetail(container, runId) {
 
     ${run.stages.map((s) => renderStageDetail(s)).join("")}
   `;
+}
+
+async function exportReleaseReport(runId) {
+  try {
+    const markdown = await apiFetchText(
+      `/api/runs/${runId}/release-report?format=markdown`
+    );
+    downloadTextFile(`kiln-run-${runId}-release-report.md`, markdown);
+  } catch (err) {
+    alert("Failed to export report: " + err.message);
+  }
 }
 
 function scrollToStage(id) {
@@ -1217,8 +1292,8 @@ function renderAbout(container) {
           and continuous improvement.
         </p>
         <p style="font-size:var(--text-sm);color:var(--color-text-muted);line-height:1.7;margin-top:var(--space-3)">
-          Ships with mock mode for demonstrations and pluggable backends for real evaluation
-          pipelines (lm-evaluation-harness, Perspective API, HarmBench, vLLM, etc.).
+          v0.1 ships with mock mode plus one real adapter path for benchmarks via lm-eval-harness.
+          Other stages are manual or mock unless you add adapters.
         </p>
       </div>
 
@@ -1229,13 +1304,13 @@ function renderAbout(container) {
             <thead><tr><th>Stage</th><th>What It Does</th><th>Tools</th></tr></thead>
             <tbody>
               <tr><td><strong>1. Benchmarks</strong></td><td>MMLU, HellaSwag, ARC, WinoGrande, TruthfulQA, GSM8K</td><td class="mono" style="font-size:var(--text-xs)">lm-eval-harness</td></tr>
-              <tr><td><strong>2. Safety</strong></td><td>Toxicity, bias (CrowS-Pairs), truthfulness, red teaming</td><td class="mono" style="font-size:var(--text-xs)">Perspective API, HarmBench</td></tr>
-              <tr><td><strong>3. Documentation</strong></td><td>Model card, intended use, limitations, NIST alignment</td><td class="mono" style="font-size:var(--text-xs)">HuggingFace template</td></tr>
-              <tr><td><strong>4. Packaging</strong></td><td>HuggingFace upload, GGUF/AWQ quantization</td><td class="mono" style="font-size:var(--text-xs)">llama.cpp, AutoAWQ</td></tr>
-              <tr><td><strong>5. Serving</strong></td><td>Inference API, latency/throughput metrics</td><td class="mono" style="font-size:var(--text-xs)">vLLM, TGI</td></tr>
-              <tr><td><strong>6. Monitoring</strong></td><td>Drift detection, toxicity sampling, performance tracking</td><td class="mono" style="font-size:var(--text-xs)">Prometheus, whylogs</td></tr>
-              <tr><td><strong>7. Incidents</strong></td><td>Incident tracking, runbook, kill switch</td><td class="mono" style="font-size:var(--text-xs)">Custom</td></tr>
-              <tr><td><strong>8. Improvement</strong></td><td>Feedback loops, scheduled reviews, retrain triggers</td><td class="mono" style="font-size:var(--text-xs)">Custom</td></tr>
+              <tr><td><strong>2. Safety</strong></td><td>Toxicity, bias (CrowS-Pairs), truthfulness, red teaming</td><td class="mono" style="font-size:var(--text-xs)">Manual/mock in v0.1</td></tr>
+              <tr><td><strong>3. Documentation</strong></td><td>Model card, intended use, limitations, NIST alignment</td><td class="mono" style="font-size:var(--text-xs)">Manual/mock in v0.1</td></tr>
+              <tr><td><strong>4. Packaging</strong></td><td>HuggingFace upload, GGUF/AWQ quantization</td><td class="mono" style="font-size:var(--text-xs)">Manual/mock in v0.1</td></tr>
+              <tr><td><strong>5. Serving</strong></td><td>Inference API, latency/throughput metrics</td><td class="mono" style="font-size:var(--text-xs)">Manual/mock in v0.1</td></tr>
+              <tr><td><strong>6. Monitoring</strong></td><td>Drift detection, toxicity sampling, performance tracking</td><td class="mono" style="font-size:var(--text-xs)">Manual/mock in v0.1</td></tr>
+              <tr><td><strong>7. Incidents</strong></td><td>Incident tracking, runbook, kill switch</td><td class="mono" style="font-size:var(--text-xs)">Manual/mock in v0.1</td></tr>
+              <tr><td><strong>8. Improvement</strong></td><td>Feedback loops, scheduled reviews, retrain triggers</td><td class="mono" style="font-size:var(--text-xs)">Manual/mock in v0.1</td></tr>
             </tbody>
           </table>
         </div>
@@ -1251,7 +1326,7 @@ cd kiln
 docker compose up --build
 
 <span style="color:var(--color-text-faint)"># Or run locally</span>
-pip install fastapi uvicorn
+pip install -r requirements.txt
 python api_server.py</pre>
       </div>
 

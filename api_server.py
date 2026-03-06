@@ -797,9 +797,12 @@ def create_run(run: RunCreate):
 
         # Create all stages
         for key, name, order in STAGE_DEFINITIONS:
+            stage_logs = None
+            if run.mode == "real" and key not in REAL_INTEGRATIONS:
+                stage_logs = "Manual completion required in v0.1 real mode."
             db.execute(
-                "INSERT INTO pipeline_stages (run_id, stage_key, stage_name, stage_order) VALUES (?, ?, ?, ?)",
-                (run_id, key, name, order)
+                "INSERT INTO pipeline_stages (run_id, stage_key, stage_name, stage_order, logs) VALUES (?, ?, ?, ?, ?)",
+                (run_id, key, name, order, stage_logs)
             )
         db.commit()
 
