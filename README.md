@@ -55,13 +55,24 @@ Open `http://localhost:8000`.
 3. Run benchmark adapter (example):
 
 ```bash
+pip install -r requirements-adapter-lm-eval.txt
 python adapters/lm_eval_adapter.py \
   --model-id your-org/your-model \
   --run-id 1 \
   --api-url http://localhost:8000
 ```
 
-4. Complete remaining stages manually (or keep as pending/warning).
+Validate the API wiring first if you want a zero-dependency smoke check:
+
+```bash
+python adapters/lm_eval_adapter.py \
+  --model-id your-org/your-model \
+  --run-id 1 \
+  --api-url http://localhost:8000 \
+  --dry-run
+```
+
+4. Complete remaining stages manually (or keep them as warning/skipped where appropriate).
 5. Export release report from run detail view, or call:
 
 ```bash
@@ -125,6 +136,7 @@ pip install -r requirements-dev.txt
 pytest -q
 python -m py_compile api_server.py adapters/lm_eval_adapter.py
 node --check app.js
+docker build . -t kiln:ci-smoke
 ```
 
 CI runs the same checks on pull requests.

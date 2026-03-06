@@ -147,3 +147,16 @@ def test_release_report_verdicts_and_markdown_export(tmp_path, monkeypatch):
         assert markdown_response.status_code == 200
         assert "text/markdown" in markdown_response.headers["content-type"]
         assert "Verdict: READY" in markdown_response.text
+
+
+def test_mock_run_uses_only_terminal_stage_statuses(tmp_path, monkeypatch):
+    module = load_app(tmp_path, monkeypatch)
+    with TestClient(module.app) as client:
+        response = client.post("/api/runs", json={"model_id": 1, "mode": "mock"})
+        assert response.status_code == 201
+
+        run_id = response.json()["id"]
+        run = client.get(f"/api/runs/{run_id}").json()
+
+        assert run["status"] in ("passed", "failed")
+        assert all(stage["status"] in module.TERMINAL_STAGE_STATUSES for stage in run["stages"])

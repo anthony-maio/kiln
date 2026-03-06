@@ -4,6 +4,7 @@
 import argparse
 import json
 import os
+import shutil
 import subprocess
 import sys
 from pathlib import Path
@@ -77,6 +78,12 @@ def parse_lm_eval_results(results_path):
 
 
 def run_lm_eval(model_id, tasks, output_dir):
+    if shutil.which("lm_eval") is None:
+        raise RuntimeError(
+            "lm_eval is not installed. Install optional adapter dependencies with "
+            "'pip install -r requirements-adapter-lm-eval.txt'."
+        )
+
     os.makedirs(output_dir, exist_ok=True)
     command = [
         "lm_eval",

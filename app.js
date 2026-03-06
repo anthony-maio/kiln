@@ -1,9 +1,7 @@
 /* Kiln — LLMOps Pipeline Manager */
 /* globals */
 
-// API URL detection:
-// - In Perplexity deployment: port/8000 gets replaced with the proxy path
-// - In Docker/standalone: the literal string remains, so we fall back to same-origin
+// Default to same-origin unless an explicit API base is injected at runtime.
 const _PROXY_URL = "port/8000";
 
 function resolveApiBase(rawBase) {

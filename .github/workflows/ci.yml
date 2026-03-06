@@ -37,3 +37,6 @@ jobs:
 
       - name: Run tests
         run: pytest -q
+
+      - name: Docker build smoke check
+        run: docker build . -t kiln:ci-smoke

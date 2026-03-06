@@ -364,7 +364,7 @@ def seed_demo_data():
             }
         },
         "improvement": {
-            "status": "pending",
+            "status": "skipped",
             "duration": 0,
             "results": {
                 "current_cycle": "Week 1",
@@ -424,7 +424,7 @@ def seed_demo_data():
         ("stage_completed", "Serving: vLLM healthy, 45 RPS throughput", model_id, run_id, run_started + timedelta(seconds=5940)),
         ("stage_completed", "Monitoring: Active, 0 drift alerts", model_id, run_id, run_started + timedelta(seconds=6000)),
         ("incident_resolved", "P2 incident resolved: Elevated latency", model_id, None, now - timedelta(days=3, hours=-4)),
-        ("run_completed", "Pipeline run #1 completed (7 passed, 1 warning)", model_id, run_id, run_completed),
+        ("run_completed", "Pipeline run #1 completed (6 passed, 1 warning, 1 skipped)", model_id, run_id, run_completed),
     ]
     for evt_type, msg, mid, rid, ts in activities:
         db.execute("""
@@ -929,7 +929,7 @@ def _generate_mock_results(stage_key):
             "current_cycle": "Week 1",
             "next_actions": ["Run safety re-evaluation", "Collect feedback", "Prepare IT dataset"],
             "feedback_collected": 0
-        }, "pending"
+        }, "skipped"
 
     return {}, "passed"
 
