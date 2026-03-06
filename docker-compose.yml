@@ -1,0 +1,15 @@
+version: "3.8"
+
+services:
+  kiln:
+    build: .
+    ports:
+      - "8080:8000"
+    volumes:
+      - kiln-data:/app/data
+    environment:
+      - KILN_DB_PATH=/app/data/kiln.db
+    restart: unless-stopped
+
+volumes:
+  kiln-data:
