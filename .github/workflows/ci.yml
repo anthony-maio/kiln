@@ -30,7 +30,7 @@ jobs:
           pip install -r requirements-dev.txt
 
       - name: Python compile check
-        run: python -m py_compile api_server.py adapters/lm_eval_adapter.py
+        run: python -m py_compile api_server.py kiln_backend/models.py kiln_backend/storage.py kiln_backend/jobs.py adapters/lm_eval_adapter.py
 
       - name: JavaScript syntax check
         run: node --check app.js

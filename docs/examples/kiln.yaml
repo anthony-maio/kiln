@@ -1,0 +1,34 @@
+version: 1
+
+model:
+  name: "My Model"
+  repo_id: "org/model"
+  parameters: "7B"
+  architecture: "Mistral"
+  description: "Optional"
+
+benchmarks:
+  provider: "lm_eval"
+  model: "hf"
+  model_args: "pretrained=org/model"
+  tasks:
+    - name: "hellaswag"
+      min_score: 0.75
+    - name: "arc_easy"
+      min_score: 0.70
+  device: "cuda:0"
+  num_fewshot: 0
+  batch_size: "auto"
+  timeout_minutes: 120
+
+manual_stages:
+  safety: "required"
+  documentation: "required"
+  packaging: "required"
+  serving: "skip"
+  monitoring: "skip"
+  incidents: "skip"
+  improvement: "skip"
+
+report:
+  output_dir: ".kiln/reports"

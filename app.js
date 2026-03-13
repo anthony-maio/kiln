@@ -20,12 +20,14 @@ function resolveApiBase(rawBase) {
 
 const API = resolveApiBase(window.__KILN_API_BASE__ || _PROXY_URL);
 
-let currentView = "dashboard";
+let currentView = "projects";
 let dashboardData = null;
+let projectsData = [];
 let modelsData = [];
 let runsData = [];
 let incidentsData = [];
 let currentRunDetail = null;
+let currentProjectDetail = null;
 
 /* ===== Theme ===== */
 
@@ -60,6 +62,7 @@ function navigate(view, data) {
   });
 
   const titles = {
+    projects: "Projects",
     dashboard: "Dashboard",
     models: "Models",
     runs: "Pipeline Runs",
@@ -67,6 +70,7 @@ function navigate(view, data) {
     about: "About Kiln",
     "run-detail": "Run Details",
     "model-detail": "Model Details",
+    "project-detail": "Project Details",
   };
   document.getElementById("header-title").textContent =
     titles[view] || "Dashboard";
@@ -78,6 +82,9 @@ function renderView(view, data) {
   const main = document.getElementById("main-content");
 
   switch (view) {
+    case "projects":
+      renderProjects(main);
+      break;
     case "dashboard":
       renderDashboard(main);
       break;
@@ -99,8 +106,11 @@ function renderView(view, data) {
     case "model-detail":
       renderModelDetail(main, data);
       break;
+    case "project-detail":
+      renderProjectDetail(main, data);
+      break;
     default:
-      renderDashboard(main);
+      renderProjects(main);
   }
 }
 
@@ -117,6 +127,18 @@ async function apiFetch(path) {
 async function apiPost(path, body) {
   const res = await fetch(`${API}${path}`, {
     method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(body),
+  });
+  if (!res.ok) {
+    throw new Error(`API error: ${res.status}`);
+  }
+  return sanitizeData(await res.json());
+}
+
+async function apiPut(path, body) {
+  const res = await fetch(`${API}${path}`, {
+    method: "PUT",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify(body),
   });
@@ -212,6 +234,21 @@ function badgeHTML(status) {
   return `<span class="badge badge-${status}">${status}</span>`;
 }
 
+function configBadgeHTML(status) {
+  const cls = status === "valid" ? "passed" : "failed";
+  return `<span class="badge badge-${cls}">config ${status}</span>`;
+}
+
+function jobBadgeHTML(status) {
+  const cls =
+    status === "completed"
+      ? "passed"
+      : status === "queued"
+        ? "pending"
+        : status;
+  return `<span class="badge badge-${cls}">${status}</span>`;
+}
+
 function stageIcon(key) {
   const icons = {
     benchmarks: '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"><path d="M12 20V10"/><path d="M18 20V4"/><path d="M6 20v-4"/></svg>',
@@ -224,6 +261,78 @@ function stageIcon(key) {
     improvement: '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"><polyline points="23 6 13.5 15.5 8.5 10.5 1 18"/><polyline points="17 6 23 6 23 12"/></svg>',
   };
   return icons[key] || "";
+}
+
+async function renderProjects(container) {
+  container.innerHTML =
+    '<div style="padding:var(--space-12);text-align:center;color:var(--color-text-faint)">Loading...</div>';
+
+  try {
+    projectsData = await apiFetch("/api/projects");
+  } catch {
+    container.innerHTML =
+      '<div class="empty-state"><h3>Cannot load projects</h3><p>Make sure the backend is running.</p></div>';
+    return;
+  }
+
+  if (projectsData.length === 0) {
+    container.innerHTML = `
+      <div class="empty-state">
+        <svg width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M3 7h5l2 3h11v8a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V7z"/><path d="M3 7V6a2 2 0 0 1 2-2h4l2 3h8a2 2 0 0 1 2 2v1"/></svg>
+        <h3>No local workspaces yet</h3>
+        <p>Add a repo path to scaffold or import a <code>kiln.yaml</code>.</p>
+        <button class="btn btn-primary" style="margin-top:var(--space-4)" onclick="openNewProjectModal()">Add Project</button>
+      </div>
+    `;
+    return;
+  }
+
+  container.innerHTML = `
+    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:var(--space-5)">
+      <div style="font-size:var(--text-sm);color:var(--color-text-muted)">${projectsData.length} local workspaces</div>
+      <button class="btn btn-primary btn-sm" onclick="openNewProjectModal()">
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M5 12h14M12 5v14"/></svg>
+        Add Project
+      </button>
+    </div>
+
+    <div class="card animate-in">
+      <div class="table-wrapper">
+        <table>
+          <thead>
+            <tr>
+              <th>Project</th>
+              <th>Model</th>
+              <th>Config</th>
+              <th>Last Run</th>
+              <th>Latest Job</th>
+              <th>Path</th>
+            </tr>
+          </thead>
+          <tbody>
+            ${projectsData
+              .map((project) => {
+                const latestJob = project.jobs && project.jobs.length > 0 ? project.jobs[0] : null;
+                return `
+                  <tr style="cursor:pointer" onclick="navigate('project-detail', ${project.id})">
+                    <td>
+                      <div><strong>${project.name}</strong></div>
+                      <div class="mono" style="font-size:var(--text-xs);color:var(--color-text-faint)">#${project.id}</div>
+                    </td>
+                    <td>${project.model ? project.model.name : "—"}</td>
+                    <td>${configBadgeHTML(project.config_status)}</td>
+                    <td>${project.last_run ? badgeHTML(project.last_run.status) : "—"}</td>
+                    <td>${latestJob ? jobBadgeHTML(latestJob.status) : "—"}</td>
+                    <td class="mono" style="font-size:var(--text-xs);max-width:260px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${project.root_path}</td>
+                  </tr>
+                `;
+              })
+              .join("")}
+          </tbody>
+        </table>
+      </div>
+    </div>
+  `;
 }
 
 /* ===== Dashboard View ===== */
@@ -555,6 +664,317 @@ async function renderModelDetail(container, modelId) {
   `;
 }
 
+function renderProjectJobRows(project) {
+  if (!project.jobs || project.jobs.length === 0) {
+    return '<div style="padding:var(--space-4);color:var(--color-text-faint);font-size:var(--text-sm)">No benchmark jobs yet.</div>';
+  }
+
+  return `
+    <div class="table-wrapper">
+      <table>
+        <thead><tr><th>Job</th><th>Status</th><th>Queued</th><th>Completed</th><th>Action</th></tr></thead>
+        <tbody>
+          ${project.jobs
+            .map(
+              (job) => `
+            <tr>
+              <td class="mono">#${job.id}</td>
+              <td>${jobBadgeHTML(job.status)}</td>
+              <td style="font-size:var(--text-xs)">${timeAgo(job.queued_at)}</td>
+              <td style="font-size:var(--text-xs)">${job.completed_at ? timeAgo(job.completed_at) : "—"}</td>
+              <td>${
+                job.status === "running" || job.status === "queued"
+                  ? `<button class="btn btn-secondary btn-sm" onclick="cancelProjectJob(${job.id}, ${project.id})">Cancel</button>`
+                  : "—"
+              }</td>
+            </tr>
+          `
+            )
+            .join("")}
+        </tbody>
+      </table>
+    </div>
+  `;
+}
+
+function renderProjectConfigForm(project) {
+  const config = project.config;
+  if (!config) {
+    return `
+      <div class="card animate-in" style="margin-bottom:var(--space-4)">
+        <div class="card-title" style="margin-bottom:var(--space-2)">Config Invalid</div>
+        <p style="font-size:var(--text-sm);color:var(--color-error)">${project.config_error || "Kiln could not parse kiln.yaml."}</p>
+        <div class="modal-actions" style="justify-content:flex-start">
+          <button class="btn btn-secondary btn-sm" onclick="syncProject(${project.id})">Re-read Config</button>
+        </div>
+      </div>
+    `;
+  }
+
+  const taskLines = config.benchmarks.tasks
+    .map((task) => `${task.name},${task.min_score ?? ""}`)
+    .join("\n");
+  const stageKeys = [
+    "safety",
+    "documentation",
+    "packaging",
+    "serving",
+    "monitoring",
+    "incidents",
+    "improvement",
+  ];
+
+  return `
+    <div class="card animate-in" style="margin-bottom:var(--space-4)">
+      <div class="card-header">
+        <div>
+          <div class="card-title">Project Config</div>
+          <div class="card-subtitle">Kiln reads and writes the repo-level <code>kiln.yaml</code>.</div>
+        </div>
+        <button class="btn btn-secondary btn-sm" onclick="syncProject(${project.id})">Re-read Config</button>
+      </div>
+
+      <div class="form-group">
+        <label class="form-label">Model Name</label>
+        <input class="form-input" id="project-model-name" value="${config.model.name || ""}">
+      </div>
+      <div class="form-group">
+        <label class="form-label">Repo ID</label>
+        <input class="form-input" id="project-model-repo" value="${config.model.repo_id || ""}">
+      </div>
+      <div style="display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:var(--space-4)">
+        <div class="form-group">
+          <label class="form-label">Parameters</label>
+          <input class="form-input" id="project-model-params" value="${config.model.parameters || ""}">
+        </div>
+        <div class="form-group">
+          <label class="form-label">Architecture</label>
+          <input class="form-input" id="project-model-arch" value="${config.model.architecture || ""}">
+        </div>
+      </div>
+      <div class="form-group">
+        <label class="form-label">Description</label>
+        <textarea class="form-input" id="project-model-desc" rows="3">${config.model.description || ""}</textarea>
+      </div>
+
+      <div style="height:1px;background:var(--color-divider);margin:var(--space-5) 0"></div>
+
+      <div style="display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:var(--space-4)">
+        <div class="form-group">
+          <label class="form-label">Benchmark Provider</label>
+          <input class="form-input" id="project-bench-provider" value="${config.benchmarks.provider}" disabled>
+        </div>
+        <div class="form-group">
+          <label class="form-label">lm-eval Model</label>
+          <input class="form-input" id="project-bench-model" value="${config.benchmarks.model}">
+        </div>
+      </div>
+      <div class="form-group">
+        <label class="form-label">Model Args</label>
+        <input class="form-input" id="project-bench-model-args" value="${config.benchmarks.model_args}">
+      </div>
+      <div style="display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:var(--space-4)">
+        <div class="form-group">
+          <label class="form-label">Device</label>
+          <input class="form-input" id="project-bench-device" value="${config.benchmarks.device || ""}">
+        </div>
+        <div class="form-group">
+          <label class="form-label">Few-shot</label>
+          <input class="form-input" id="project-bench-fewshot" type="number" min="0" value="${config.benchmarks.num_fewshot}">
+        </div>
+        <div class="form-group">
+          <label class="form-label">Batch Size</label>
+          <input class="form-input" id="project-bench-batch" value="${config.benchmarks.batch_size}">
+        </div>
+        <div class="form-group">
+          <label class="form-label">Timeout (min)</label>
+          <input class="form-input" id="project-bench-timeout" type="number" min="1" value="${config.benchmarks.timeout_minutes}">
+        </div>
+      </div>
+      <div class="form-group">
+        <label class="form-label">Tasks</label>
+        <textarea class="form-input mono" id="project-bench-tasks" rows="4">${taskLines}</textarea>
+        <p class="form-hint">One task per line in <code>task,min_score</code> format. Leave min_score empty to make the result informational.</p>
+      </div>
+
+      <div style="height:1px;background:var(--color-divider);margin:var(--space-5) 0"></div>
+
+      <div class="card-title" style="margin-bottom:var(--space-3)">Manual Stages</div>
+      <div style="display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:var(--space-4)">
+        ${stageKeys
+          .map(
+            (stageKey) => `
+          <div class="form-group">
+            <label class="form-label">${stageKey}</label>
+            <select class="form-input" id="project-stage-${stageKey}">
+              <option value="required" ${config.manual_stages[stageKey] === "required" ? "selected" : ""}>required</option>
+              <option value="skip" ${config.manual_stages[stageKey] === "skip" ? "selected" : ""}>skip</option>
+            </select>
+          </div>
+        `
+          )
+          .join("")}
+      </div>
+
+      <div class="form-group">
+        <label class="form-label">Report Output Directory</label>
+        <input class="form-input mono" id="project-report-dir" value="${config.report.output_dir}">
+      </div>
+
+      <div class="modal-actions" style="justify-content:flex-start">
+        <button class="btn btn-primary" onclick="saveProjectConfig(${project.id})">Save Config</button>
+      </div>
+    </div>
+  `;
+}
+
+async function renderProjectDetail(container, projectId) {
+  container.innerHTML =
+    '<div style="padding:var(--space-12);text-align:center;color:var(--color-text-faint)">Loading...</div>';
+
+  try {
+    currentProjectDetail = await apiFetch(`/api/projects/${projectId}`);
+  } catch {
+    container.innerHTML =
+      '<div class="empty-state"><h3>Project not found</h3></div>';
+    return;
+  }
+
+  const allRuns = await apiFetch("/api/runs");
+  const projectRuns = allRuns.filter((run) => run.project_id === projectId);
+  const lastRunArtifacts =
+    currentProjectDetail.last_run && currentProjectDetail.last_run.report_artifacts
+      ? currentProjectDetail.last_run.report_artifacts
+      : null;
+
+  document.getElementById("header-title").textContent = currentProjectDetail.name;
+
+  container.innerHTML = `
+    <div class="model-header animate-in">
+      <div class="model-info">
+        <div class="model-name">${currentProjectDetail.name}</div>
+        <div class="mono" style="font-size:var(--text-xs);color:var(--color-text-faint)">${currentProjectDetail.root_path}</div>
+        <div class="model-meta-row">
+          <span class="model-meta-tag">${configBadgeHTML(currentProjectDetail.config_status)}</span>
+          ${
+            currentProjectDetail.model
+              ? `<span class="model-meta-tag">${currentProjectDetail.model.name}</span>`
+              : ""
+          }
+          ${
+            currentProjectDetail.last_run
+              ? `<span class="model-meta-tag">${badgeHTML(currentProjectDetail.last_run.status)}</span>`
+              : ""
+          }
+        </div>
+        ${
+          currentProjectDetail.config_error
+            ? `<p style="margin-top:var(--space-3);font-size:var(--text-sm);color:var(--color-error);max-width:72ch">${currentProjectDetail.config_error}</p>`
+            : ""
+        }
+      </div>
+      <div style="display:flex;gap:var(--space-2)">
+        <button class="btn btn-primary btn-sm" onclick="startProjectReleaseRun(${currentProjectDetail.id})">Run Release Check</button>
+        <button class="btn btn-secondary btn-sm" onclick="navigate('projects')">Back</button>
+      </div>
+    </div>
+
+    <div class="kpi-grid animate-in" style="margin-bottom:var(--space-4)">
+      <div class="kpi-card">
+        <div class="kpi-label">Latest Run</div>
+        <div class="kpi-value" style="font-size:var(--text-lg)">${currentProjectDetail.last_run ? `#${currentProjectDetail.last_run.id}` : "—"}</div>
+      </div>
+      <div class="kpi-card">
+        <div class="kpi-label">Run Count</div>
+        <div class="kpi-value">${projectRuns.length}</div>
+      </div>
+      <div class="kpi-card">
+        <div class="kpi-label">Active Jobs</div>
+        <div class="kpi-value">${
+          currentProjectDetail.jobs.filter((job) => job.status === "running" || job.status === "queued").length
+        }</div>
+      </div>
+      <div class="kpi-card">
+        <div class="kpi-label">Artifacts</div>
+        <div class="kpi-value" style="font-size:var(--text-base)">${lastRunArtifacts ? "Ready" : "Pending"}</div>
+      </div>
+    </div>
+
+    ${renderProjectConfigForm(currentProjectDetail)}
+
+    <div class="card animate-in" style="margin-bottom:var(--space-4)">
+      <div class="card-header">
+        <div class="card-title">Benchmark Jobs</div>
+      </div>
+      ${renderProjectJobRows(currentProjectDetail)}
+    </div>
+
+    <div class="card animate-in" style="margin-bottom:var(--space-4)">
+      <div class="card-header">
+        <div class="card-title">Run History</div>
+      </div>
+      ${
+        projectRuns.length > 0
+          ? `
+        <div class="table-wrapper">
+          <table>
+            <thead><tr><th>Run</th><th>Status</th><th>Mode</th><th>Started</th><th>Trigger</th></tr></thead>
+            <tbody>
+              ${projectRuns
+                .map(
+                  (run) => `
+                <tr style="cursor:pointer" onclick="navigate('run-detail', ${run.id})">
+                  <td class="mono">#${run.id}</td>
+                  <td>${badgeHTML(run.status)}</td>
+                  <td class="mono">${run.mode}</td>
+                  <td style="font-size:var(--text-xs)">${timeAgo(run.started_at)}</td>
+                  <td>${run.trigger}</td>
+                </tr>
+              `
+                )
+                .join("")}
+            </tbody>
+          </table>
+        </div>
+      `
+          : '<div style="padding:var(--space-4);color:var(--color-text-faint);font-size:var(--text-sm)">No project runs yet.</div>'
+      }
+    </div>
+
+    ${
+      lastRunArtifacts
+        ? `
+      <div class="card animate-in">
+        <div class="card-header">
+          <div class="card-title">Latest Report Artifacts</div>
+        </div>
+        <div class="mono" style="font-size:var(--text-xs);display:grid;gap:var(--space-2)">
+          <div>Markdown: ${lastRunArtifacts.markdown}</div>
+          <div>JSON: ${lastRunArtifacts.json}</div>
+        </div>
+      </div>
+    `
+        : ""
+    }
+  `;
+
+  if (
+    currentProjectDetail.jobs.some(
+      (job) => job.status === "running" || job.status === "queued"
+    )
+  ) {
+    window.setTimeout(() => {
+      if (
+        currentView === "project-detail" &&
+        currentProjectDetail &&
+        currentProjectDetail.id === projectId
+      ) {
+        navigate("project-detail", projectId);
+      }
+    }, 2000);
+  }
+}
+
 /* ===== Runs View ===== */
 
 async function renderRuns(container) {
@@ -651,13 +1071,13 @@ async function renderRunDetail(container, runId) {
       <div style="display:flex;align-items:center;gap:var(--space-3)">
         <strong style="font-size:var(--text-lg)">${run.model_name}</strong>
         ${badgeHTML(run.status)}
-        <span class="mono" style="font-size:var(--text-xs);color:var(--color-text-faint)">Run #${run.id} · ${run.mode || "mock"} · ${run.trigger}</span>
+        <span class="mono" style="font-size:var(--text-xs);color:var(--color-text-faint)">Run #${run.id} · ${run.mode || "mock"} · ${run.trigger}${run.project_name ? ` · ${run.project_name}` : ""}</span>
       </div>
       <div style="display:flex;gap:var(--space-2)">
         <button class="btn btn-primary btn-sm" onclick="exportReleaseReport(${run.id})">
           Export Report
         </button>
-        <button class="btn btn-secondary btn-sm" onclick="navigate('runs')">Back to Runs</button>
+        <button class="btn btn-secondary btn-sm" onclick="${run.project_id ? `navigate('project-detail', ${run.project_id})` : "navigate('runs')"}">${run.project_id ? "Back to Project" : "Back to Runs"}</button>
       </div>
     </div>
 
@@ -699,12 +1119,25 @@ async function renderRunDetail(container, runId) {
       </div>
     </div>
 
-    ${run.stages.map((s) => renderStageDetail(s)).join("")}
+    ${run.report_artifacts ? `
+      <div class="card animate-in" style="margin-bottom:var(--space-5)">
+        <div class="card-header">
+          <div class="card-title">Report Artifacts</div>
+        </div>
+        <div class="mono" style="font-size:var(--text-xs);display:grid;gap:var(--space-2)">
+          <div>Markdown: ${run.report_artifacts.markdown}</div>
+          <div>JSON: ${run.report_artifacts.json}</div>
+        </div>
+      </div>
+    ` : ""}
+
+    ${run.stages.map((s) => renderStageDetail(run, s)).join("")}
   `;
 }
 
 async function exportReleaseReport(runId) {
   try {
+    await apiPost(`/api/runs/${runId}/export-report`, {});
     const markdown = await apiFetchText(
       `/api/runs/${runId}/release-report?format=markdown`
     );
@@ -721,7 +1154,40 @@ function scrollToStage(id) {
   }
 }
 
-function renderStageDetail(stage) {
+function renderManualStageControls(run, stage) {
+  if (
+    !run.project_id ||
+    stage.stage_key === "benchmarks" ||
+    stage.stage_key === "incidents"
+  ) {
+    return "";
+  }
+
+  const noteValue =
+    stage.results && typeof stage.results.notes === "string"
+      ? stage.results.notes
+      : "";
+
+  return `
+    <div style="margin-top:var(--space-4);padding-top:var(--space-4);border-top:1px solid var(--color-divider)">
+      <div style="font-size:var(--text-sm);font-weight:600;margin-bottom:var(--space-3)">Manual Update</div>
+      <div style="display:grid;grid-template-columns:160px 1fr auto;gap:var(--space-3);align-items:start">
+        <select class="form-input" id="manual-stage-status-${stage.stage_key}">
+          ${["passed", "failed", "warning", "skipped"]
+            .map(
+              (status) =>
+                `<option value="${status}" ${stage.status === status ? "selected" : ""}>${status}</option>`
+            )
+            .join("")}
+        </select>
+        <textarea class="form-input" id="manual-stage-notes-${stage.stage_key}" rows="2" placeholder="Notes for this stage">${noteValue}</textarea>
+        <button class="btn btn-primary btn-sm" onclick="completeManualStage(${run.id}, '${stage.stage_key}')">Save</button>
+      </div>
+    </div>
+  `;
+}
+
+function renderStageDetail(run, stage) {
   const results = stage.results || {};
 
   return `
@@ -736,6 +1202,7 @@ function renderStageDetail(stage) {
       </div>
       <div class="stage-detail-body">
         ${renderStageResults(stage.stage_key, results)}
+        ${renderManualStageControls(run, stage)}
       </div>
     </div>
   `;
@@ -1277,21 +1744,20 @@ function renderAbout(container) {
         </svg>
         <div>
           <h2 style="font-size:var(--text-2xl);font-weight:700;letter-spacing:-0.02em">Kiln</h2>
-          <p style="color:var(--color-text-muted);font-size:var(--text-sm)">Open-source LLMOps Pipeline Manager</p>
+          <p style="color:var(--color-text-muted);font-size:var(--text-sm)">Local-first release gate for open-source model builders</p>
         </div>
       </div>
 
       <div class="card" style="margin-bottom:var(--space-4)">
         <div class="card-title" style="margin-bottom:var(--space-3)">What is Kiln?</div>
         <p style="font-size:var(--text-sm);color:var(--color-text-muted);line-height:1.7">
-          Kiln is a model-to-production pipeline manager for LLMs. It orchestrates the 8 stages
-          that happen between "my model trained" and "my model is in production": academic benchmarks,
-          safety evaluation, documentation, packaging, inference serving, monitoring, incident response,
-          and continuous improvement.
+          Kiln is a local-first release gate for open-source model builders. In v0.2, the primary
+          workflow is projects-first: point Kiln at a local repo, manage a repo-owned <code>kiln.yaml</code>,
+          run a benchmark-backed release check, then complete the remaining manual stages and export report artifacts.
         </p>
         <p style="font-size:var(--text-sm);color:var(--color-text-muted);line-height:1.7;margin-top:var(--space-3)">
-          v0.1 ships with mock mode plus one real adapter path for benchmarks via lm-eval-harness.
-          Other stages are manual or mock unless you add adapters.
+          Benchmarks are the only backend-run adapter in this version. Other stages remain local manual checks,
+          so the release report is honest about what was automated and what still required human sign-off.
         </p>
       </div>
 
@@ -1302,13 +1768,13 @@ function renderAbout(container) {
             <thead><tr><th>Stage</th><th>What It Does</th><th>Tools</th></tr></thead>
             <tbody>
               <tr><td><strong>1. Benchmarks</strong></td><td>MMLU, HellaSwag, ARC, WinoGrande, TruthfulQA, GSM8K</td><td class="mono" style="font-size:var(--text-xs)">lm-eval-harness</td></tr>
-              <tr><td><strong>2. Safety</strong></td><td>Toxicity, bias (CrowS-Pairs), truthfulness, red teaming</td><td class="mono" style="font-size:var(--text-xs)">Manual/mock in v0.1</td></tr>
-              <tr><td><strong>3. Documentation</strong></td><td>Model card, intended use, limitations, NIST alignment</td><td class="mono" style="font-size:var(--text-xs)">Manual/mock in v0.1</td></tr>
-              <tr><td><strong>4. Packaging</strong></td><td>HuggingFace upload, GGUF/AWQ quantization</td><td class="mono" style="font-size:var(--text-xs)">Manual/mock in v0.1</td></tr>
-              <tr><td><strong>5. Serving</strong></td><td>Inference API, latency/throughput metrics</td><td class="mono" style="font-size:var(--text-xs)">Manual/mock in v0.1</td></tr>
-              <tr><td><strong>6. Monitoring</strong></td><td>Drift detection, toxicity sampling, performance tracking</td><td class="mono" style="font-size:var(--text-xs)">Manual/mock in v0.1</td></tr>
-              <tr><td><strong>7. Incidents</strong></td><td>Incident tracking, runbook, kill switch</td><td class="mono" style="font-size:var(--text-xs)">Manual/mock in v0.1</td></tr>
-              <tr><td><strong>8. Improvement</strong></td><td>Feedback loops, scheduled reviews, retrain triggers</td><td class="mono" style="font-size:var(--text-xs)">Manual/mock in v0.1</td></tr>
+              <tr><td><strong>2. Safety</strong></td><td>Toxicity, bias (CrowS-Pairs), truthfulness, red teaming</td><td class="mono" style="font-size:var(--text-xs)">Manual in v0.2</td></tr>
+              <tr><td><strong>3. Documentation</strong></td><td>Model card, intended use, limitations, NIST alignment</td><td class="mono" style="font-size:var(--text-xs)">Manual in v0.2</td></tr>
+              <tr><td><strong>4. Packaging</strong></td><td>HuggingFace upload, GGUF/AWQ quantization</td><td class="mono" style="font-size:var(--text-xs)">Manual in v0.2</td></tr>
+              <tr><td><strong>5. Serving</strong></td><td>Inference API, latency/throughput metrics</td><td class="mono" style="font-size:var(--text-xs)">Manual or skipped</td></tr>
+              <tr><td><strong>6. Monitoring</strong></td><td>Drift detection, toxicity sampling, performance tracking</td><td class="mono" style="font-size:var(--text-xs)">Manual or skipped</td></tr>
+              <tr><td><strong>7. Incidents</strong></td><td>Incident tracking, runbook, kill switch</td><td class="mono" style="font-size:var(--text-xs)">Tracked separately</td></tr>
+              <tr><td><strong>8. Improvement</strong></td><td>Feedback loops, scheduled reviews, retrain triggers</td><td class="mono" style="font-size:var(--text-xs)">Manual or skipped</td></tr>
             </tbody>
           </table>
         </div>
@@ -1335,7 +1801,7 @@ python api_server.py</pre>
           <a href="https://making-minds.ai" target="_blank" rel="noopener noreferrer" style="color:var(--color-primary)">making-minds.ai</a>
         </p>
         <p style="font-size:var(--text-xs);color:var(--color-text-faint);margin-top:var(--space-2)">
-          Version 0.1.0 &middot; MIT License &middot; March 2026
+          Version 0.2.0-dev &middot; MIT License &middot; March 2026
         </p>
       </div>
     </div>
@@ -1378,6 +1844,86 @@ function openNewModelModal() {
   openModal("new-model-modal");
 }
 
+function openNewProjectModal() {
+  openModal("new-project-modal");
+}
+
+function parseProjectTaskLines(rawValue) {
+  return rawValue
+    .split("\n")
+    .map((line) => line.trim())
+    .filter(Boolean)
+    .map((line) => {
+      const [name, minScoreRaw] = line.split(",").map((part) => part.trim());
+      const task = { name };
+      if (minScoreRaw !== undefined && minScoreRaw !== "") {
+        const parsed = parseFloat(minScoreRaw);
+        if (Number.isNaN(parsed)) {
+          throw new Error(`Invalid min_score for task "${name}"`);
+        }
+        task.min_score = parsed;
+      }
+      return task;
+    });
+}
+
+function buildProjectConfigFromForm() {
+  const stageKeys = [
+    "safety",
+    "documentation",
+    "packaging",
+    "serving",
+    "monitoring",
+    "incidents",
+    "improvement",
+  ];
+  const manualStages = {};
+  stageKeys.forEach((stageKey) => {
+    manualStages[stageKey] = document.getElementById(
+      `project-stage-${stageKey}`
+    ).value;
+  });
+
+  return {
+    version: 1,
+    model: {
+      name: document.getElementById("project-model-name").value.trim(),
+      repo_id: document.getElementById("project-model-repo").value.trim() || null,
+      parameters:
+        document.getElementById("project-model-params").value.trim() || null,
+      architecture:
+        document.getElementById("project-model-arch").value.trim() || null,
+      description:
+        document.getElementById("project-model-desc").value.trim() || null,
+    },
+    benchmarks: {
+      provider: "lm_eval",
+      model: document.getElementById("project-bench-model").value.trim(),
+      model_args: document
+        .getElementById("project-bench-model-args")
+        .value.trim(),
+      tasks: parseProjectTaskLines(
+        document.getElementById("project-bench-tasks").value
+      ),
+      device:
+        document.getElementById("project-bench-device").value.trim() || null,
+      num_fewshot: parseInt(
+        document.getElementById("project-bench-fewshot").value,
+        10
+      ),
+      batch_size: document.getElementById("project-bench-batch").value.trim(),
+      timeout_minutes: parseInt(
+        document.getElementById("project-bench-timeout").value,
+        10
+      ),
+    },
+    manual_stages: manualStages,
+    report: {
+      output_dir: document.getElementById("project-report-dir").value.trim(),
+    },
+  };
+}
+
 async function startNewRun() {
   const modelId = parseInt(
     document.getElementById("run-model-select").value,
@@ -1394,6 +1940,79 @@ async function startNewRun() {
     navigate("run-detail", run.id);
   } catch (err) {
     alert("Failed to start run: " + err.message);
+  }
+}
+
+async function createProject() {
+  const rootPath = document.getElementById("project-root-input").value.trim();
+  if (!rootPath) {
+    alert("Project path is required");
+    return;
+  }
+
+  try {
+    const project = await apiPost("/api/projects", {
+      root_path: rootPath,
+    });
+    document.getElementById("project-root-input").value = "";
+    closeModal("new-project-modal");
+    navigate("project-detail", project.id);
+  } catch (err) {
+    alert("Failed to add project: " + err.message);
+  }
+}
+
+async function saveProjectConfig(projectId) {
+  try {
+    const payload = buildProjectConfigFromForm();
+    await apiPut(`/api/projects/${projectId}/config`, payload);
+    navigate("project-detail", projectId);
+  } catch (err) {
+    alert("Failed to save config: " + err.message);
+  }
+}
+
+async function syncProject(projectId) {
+  try {
+    await apiPost(`/api/projects/${projectId}/sync`, {});
+    navigate("project-detail", projectId);
+  } catch (err) {
+    alert("Failed to sync project: " + err.message);
+  }
+}
+
+async function startProjectReleaseRun(projectId) {
+  try {
+    const payload = await apiPost(`/api/projects/${projectId}/runs`, {});
+    navigate("run-detail", payload.run.id);
+  } catch (err) {
+    alert("Failed to start project run: " + err.message);
+  }
+}
+
+async function cancelProjectJob(jobId, projectId) {
+  try {
+    await apiPost(`/api/jobs/${jobId}/cancel`, {});
+    navigate("project-detail", projectId);
+  } catch (err) {
+    alert("Failed to cancel job: " + err.message);
+  }
+}
+
+async function completeManualStage(runId, stageKey) {
+  const status = document.getElementById(`manual-stage-status-${stageKey}`).value;
+  const notes = document
+    .getElementById(`manual-stage-notes-${stageKey}`)
+    .value.trim();
+
+  try {
+    await apiPost(`/api/runs/${runId}/stages/${stageKey}/complete`, {
+      status,
+      results: notes ? { notes } : {},
+    });
+    navigate("run-detail", runId);
+  } catch (err) {
+    alert("Failed to update stage: " + err.message);
   }
 }
 
@@ -1440,4 +2059,4 @@ document.querySelectorAll(".modal-overlay").forEach((overlay) => {
 });
 
 /* ===== Init ===== */
-navigate("dashboard");
+navigate("projects");

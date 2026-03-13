@@ -1,33 +1,27 @@
 # Kiln
 
-Local-first LLM release gate for open-source model builders.
+**Local-first release gate for open-source model builders.**
 
-Kiln helps you track model release readiness across 8 stages, then export a shareable report.  
-v0.1 is intentionally small: one real adapter path (benchmarks), local single-user runtime, no auth.
+Kiln gives you a repeatable release checklist for your LLM — right on your machine. Point it at a model repo, define pass/fail thresholds in a `kiln.yaml`, and run an 8-stage release check that combines automated benchmarks with manual sign-offs. When you're done, export a Markdown or JSON release report directly into the repo.
 
-## What v0.1 actually does
+No cloud account. No API keys for Kiln itself. Just a local server, a browser, and your models.
 
-- Run lifecycle tracking (`mock` or `real` mode)
-- Stage-level status management across 8 pipeline stages
-- Release readiness report:
-  - JSON: `GET /api/runs/{id}/release-report`
-  - Markdown: `GET /api/runs/{id}/release-report?format=markdown`
-- Frontend export button for Markdown report downloads
-- Real benchmark adapter script for `lm-eval-harness`:
-  - [`adapters/lm_eval_adapter.py`](adapters/lm_eval_adapter.py)
+---
 
-## What v0.1 does not do
+## Features
 
-- Multi-user auth/roles
-- Hosted deployment workflow
-- Real adapters for all 8 stages
-
-Only the **benchmarks** stage has a real adapter in this release.  
-Other stages are manual/mock unless you integrate them.
+- **Projects-first workspace** — add local repo paths and manage them from one dashboard
+- **`kiln.yaml` as source of truth** — repo-owned config defines benchmarks, thresholds, and which manual stages to require
+- **Automated benchmarks** — runs [lm-eval-harness](https://github.com/EleutherAI/lm-evaluation-harness) in the background and evaluates results against your thresholds
+- **8-stage release pipeline** — benchmarks, safety, documentation, packaging, serving, monitoring, incident response, and continuous improvement
+- **Release verdicts** — `ready`, `needs_review`, or `blocked` based on stage outcomes
+- **Report export** — generates Markdown and JSON artifacts written to your repo
+- **Incident tracking** — log and review model incidents alongside release data
+- **Dark/light theme** — works how you work
 
 ## Quickstart
 
-### Docker
+### Docker (recommended)
 
 ```bash
 git clone https://github.com/anthony-maio/kiln.git
@@ -35,7 +29,7 @@ cd kiln
 docker compose up --build
 ```
 
-Open `http://localhost:8080`.
+Open [http://localhost:8080](http://localhost:8080).
 
 ### Local
 
@@ -46,105 +40,157 @@ pip install -r requirements.txt
 python api_server.py
 ```
 
-Open `http://localhost:8000`.
+Open [http://localhost:8000](http://localhost:8000). Requires Python 3.11+.
 
-## First useful run (real mode)
+## How it works
 
-1. Register a model in the UI.
-2. Start a new run with `mode=real`.
-3. Run benchmark adapter (example):
+1. **Add a project** — point Kiln at your local model repo
+2. **Configure** — Kiln scaffolds a `kiln.yaml`, or you bring your own
+3. **Run a release check** — benchmarks execute automatically; manual stages wait for you
+4. **Review & sign off** — complete each required stage in the run detail view
+5. **Export** — write the release report into your repo under `.kiln/reports/`
 
-```bash
-pip install -r requirements-adapter-lm-eval.txt
-python adapters/lm_eval_adapter.py \
-  --model-id your-org/your-model \
-  --run-id 1 \
-  --api-url http://localhost:8000
+### Verdict logic
+
+| Verdict | Condition |
+|---------|-----------|
+| `ready` | All stages passed or skipped |
+| `needs_review` | No failures, but some stages are pending, running, or have warnings |
+| `blocked` | Any stage failed |
+
+## `kiln.yaml`
+
+Every project is configured with a `kiln.yaml` at the repo root. See [docs/examples/kiln.yaml](docs/examples/kiln.yaml) for the full schema.
+
+```yaml
+version: 1
+
+model:
+  name: "My Model"
+  repo_id: "org/model"
+  parameters: "7B"
+  architecture: "Mistral"
+
+benchmarks:
+  provider: "lm_eval"
+  model: "hf"
+  model_args: "pretrained=org/model"
+  tasks:
+    - name: "hellaswag"
+      min_score: 0.75
+    - name: "arc_easy"
+      min_score: 0.70
+  device: "cuda:0"
+  batch_size: "auto"
+  timeout_minutes: 120
+
+manual_stages:
+  safety: "required"
+  documentation: "required"
+  packaging: "required"
+  serving: "skip"
+  monitoring: "skip"
+  incidents: "skip"
+  improvement: "skip"
+
+report:
+  output_dir: ".kiln/reports"
 ```
-
-Validate the API wiring first if you want a zero-dependency smoke check:
-
-```bash
-python adapters/lm_eval_adapter.py \
-  --model-id your-org/your-model \
-  --run-id 1 \
-  --api-url http://localhost:8000 \
-  --dry-run
-```
-
-4. Complete remaining stages manually (or keep them as warning/skipped where appropriate).
-5. Export release report from run detail view, or call:
-
-```bash
-curl "http://localhost:8000/api/runs/1/release-report?format=markdown"
-```
-
-## Verdict logic
-
-- `blocked`: any stage is `failed`
-- `needs_review`: no failures, but at least one `warning`, `pending`, or `running`
-- `ready`: all stages are `passed` or `skipped`
 
 ## Configuration
 
-Environment variables:
+| Variable | Default | Description |
+|----------|---------|-------------|
+| `KILN_DB_PATH` | `./kiln.db` | SQLite database path |
+| `KILN_CORS_ORIGINS` | localhost only | Comma-separated allowed origins |
+| `KILN_ENABLE_SEED_ENDPOINT` | `false` | Enable `POST /api/seed` for demo data |
 
-- `KILN_DB_PATH` (default: `./kiln.db`)
-- `KILN_CORS_ORIGINS` (comma-separated; default localhost-only origins)
-- `KILN_ENABLE_SEED_ENDPOINT` (`true` to enable `POST /api/seed`; default disabled)
+## API reference
 
-## API reference (v0.1)
+<details>
+<summary>Expand full API reference</summary>
 
-### Health and dashboard
+### Projects
 
-- `GET /api/health`
-- `GET /api/dashboard`
+| Method | Endpoint | Description |
+|--------|----------|-------------|
+| `GET` | `/api/projects` | List all projects |
+| `POST` | `/api/projects` | Add a project (provide `root_path`) |
+| `GET` | `/api/projects/{id}` | Project detail with config |
+| `PUT` | `/api/projects/{id}/config` | Update `kiln.yaml` |
+| `POST` | `/api/projects/{id}/sync` | Re-read config from disk |
+| `POST` | `/api/projects/{id}/runs` | Start a release check |
 
-### Models
+### Jobs
 
-- `GET /api/models`
-- `GET /api/models/{id}`
-- `POST /api/models`
+| Method | Endpoint | Description |
+|--------|----------|-------------|
+| `GET` | `/api/jobs` | List jobs |
+| `GET` | `/api/jobs/{id}` | Job detail |
+| `POST` | `/api/jobs/{id}/cancel` | Cancel a running job |
 
 ### Runs
 
-- `GET /api/runs`
-- `GET /api/runs/{id}`
-- `POST /api/runs` (`mode`: `mock | real`)
-- `GET /api/runs/{id}/release-report`
-- `GET /api/runs/{id}/release-report?format=markdown`
+| Method | Endpoint | Description |
+|--------|----------|-------------|
+| `GET` | `/api/runs` | List runs |
+| `GET` | `/api/runs/{id}` | Run detail with stages |
+| `POST` | `/api/runs` | Create a run (legacy) |
+| `GET` | `/api/runs/{id}/release-report` | JSON report |
+| `GET` | `/api/runs/{id}/release-report?format=markdown` | Markdown report |
+| `POST` | `/api/runs/{id}/export-report` | Write report to repo |
 
 ### Stages
 
-- `POST /api/runs/{id}/stages/{key}/start`
-- `POST /api/runs/{id}/stages/{key}/complete` (`status`: `passed | failed | warning | skipped`)
+| Method | Endpoint | Description |
+|--------|----------|-------------|
+| `POST` | `/api/runs/{id}/stages/{key}/start` | Mark stage as running |
+| `POST` | `/api/runs/{id}/stages/{key}/complete` | Complete with status |
 
-### Incidents
+### Models & incidents
 
-- `GET /api/incidents`
-- `POST /api/incidents` (`severity`: `P0 | P1 | P2 | P3`)
+| Method | Endpoint | Description |
+|--------|----------|-------------|
+| `GET` | `/api/models` | List models |
+| `GET` | `/api/models/{id}` | Model detail |
+| `POST` | `/api/models` | Create a model |
+| `GET` | `/api/incidents` | List incidents |
+| `POST` | `/api/incidents` | Report an incident |
 
 ### Utilities
 
-- `GET /api/activity`
-- `POST /api/seed` (disabled unless `KILN_ENABLE_SEED_ENDPOINT=true`)
+| Method | Endpoint | Description |
+|--------|----------|-------------|
+| `GET` | `/api/health` | Health check |
+| `GET` | `/api/dashboard` | Dashboard summary |
+| `GET` | `/api/activity` | Activity log |
+
+</details>
 
 ## Development
 
 ```bash
 pip install -r requirements-dev.txt
 pytest -q
-python -m py_compile api_server.py adapters/lm_eval_adapter.py
-node --check app.js
-docker build . -t kiln:ci-smoke
 ```
 
-CI runs the same checks on pull requests.
+CI runs syntax checks, the test suite, and a Docker build on every push. See [.github/workflows/ci.yml](.github/workflows/ci.yml).
+
+## Scope & limitations
+
+v0.2 is intentionally narrow:
+
+- **Local single-user only** — no auth, no multi-user
+- **One automated stage** — only benchmarks run automatically via lm-eval-harness
+- **No hosted mode** — runs on your machine
+- **No remote execution** — jobs run locally
+
+Other stages (safety, documentation, packaging, etc.) are tracked manually in the UI.
 
 ## Contributing
 
-See [CONTRIBUTING.md](CONTRIBUTING.md), [SECURITY.md](SECURITY.md), and [CODE_OF_CONDUCT.md](CODE_OF_CONDUCT.md).
+See [CONTRIBUTING.md](CONTRIBUTING.md), [CODE_OF_CONDUCT.md](CODE_OF_CONDUCT.md), and [SECURITY.md](SECURITY.md).
 
 ## License
 
-MIT. See [LICENSE](LICENSE).
+[MIT](LICENSE)

@@ -2,13 +2,18 @@
 
 All notable changes to this project will be documented in this file.
 
-## [Unreleased]
+## [0.2.0] - 2026-03-13
 
 ### Added
-- Release readiness report endpoint with Markdown export.
+- Projects-first workspace with `kiln.yaml` as source of truth.
+- Backend-managed benchmark jobs via lm-eval-harness adapter.
+- Manual stage tracking for non-integrated pipeline stages.
+- Release readiness report endpoint with Markdown and JSON export.
+- Report artifacts written to repo under configurable output directory.
 - `lm-eval-harness` adapter script for benchmarks.
 - API contract tests and CI workflow.
-- OSS governance docs and issue/PR templates.
+- Docker and Docker Compose support.
+- OSS governance docs (CONTRIBUTING, CODE_OF_CONDUCT, SECURITY).
 
 ### Changed
 - Enforced request enums for run mode, stage completion status, and incident severity.

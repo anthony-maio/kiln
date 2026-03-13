@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>Kiln — LLMOps Pipeline Manager</title>
+<title>Kiln — Local Release Gate</title>
 <meta name="description" content="Local-first LLM release gate for open-source model builders. Track readiness across benchmark, safety, docs, packaging, and release stages.">
 <link rel="stylesheet" href="./base.css">
 <link rel="stylesheet" href="./style.css">
@@ -30,7 +30,11 @@
     <div class="sidebar-nav">
       <div class="nav-section">
         <div class="nav-section-label">Overview</div>
-        <button class="nav-item active" data-view="dashboard" onclick="navigate('dashboard')">
+        <button class="nav-item active" data-view="projects" onclick="navigate('projects')">
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 7h5l2 3h11v8a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V7z"/><path d="M3 7V6a2 2 0 0 1 2-2h4l2 3h8a2 2 0 0 1 2 2v1"/></svg>
+          Projects
+        </button>
+        <button class="nav-item" data-view="dashboard" onclick="navigate('dashboard')">
           <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="7" height="7" rx="1"/><rect x="14" y="3" width="7" height="7" rx="1"/><rect x="3" y="14" width="7" height="7" rx="1"/><rect x="14" y="14" width="7" height="7" rx="1"/></svg>
           Dashboard
         </button>
@@ -66,15 +70,15 @@
   <!-- Header -->
   <header class="header">
     <div class="header-left">
-      <h1 class="header-title" id="header-title">Dashboard</h1>
+      <h1 class="header-title" id="header-title">Projects</h1>
     </div>
     <div class="header-right">
       <button class="btn-ghost" data-theme-toggle aria-label="Toggle theme" onclick="toggleTheme()">
         <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="5"/><path d="M12 1v2M12 21v2M4.22 4.22l1.42 1.42M18.36 18.36l1.42 1.42M1 12h2M21 12h2M4.22 19.78l1.42-1.42M18.36 5.64l1.42-1.42"/></svg>
       </button>
-      <button class="btn btn-primary btn-sm" onclick="openNewRunModal()">
+      <button class="btn btn-primary btn-sm" onclick="openNewProjectModal()">
         <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M5 12h14M12 5v14"/></svg>
-        New Run
+        Add Project
       </button>
     </div>
   </header>
@@ -83,6 +87,22 @@
   <main class="main" id="main-content">
     <!-- Content injected by JS -->
   </main>
+</div>
+
+<!-- New Project Modal -->
+<div class="modal-overlay" id="new-project-modal">
+  <div class="modal">
+    <h2 class="modal-title">Add Local Workspace</h2>
+    <div class="form-group">
+      <label class="form-label">Absolute Repo Path</label>
+      <input class="form-input mono" id="project-root-input" placeholder="e.g., D:\\Models\\my-model-repo">
+      <p class="form-hint">Kiln will scaffold or import <code>kiln.yaml</code> at the repo root.</p>
+    </div>
+    <div class="modal-actions">
+      <button class="btn btn-secondary" onclick="closeModal('new-project-modal')">Cancel</button>
+      <button class="btn btn-primary" onclick="createProject()">Add Project</button>
+    </div>
+  </div>
 </div>
 
 <!-- New Run Modal -->
