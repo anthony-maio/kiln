@@ -6,6 +6,10 @@ Kiln gives you a repeatable release checklist for your LLM — right on your mac
 
 No cloud account. No API keys for Kiln itself. Just a local server, a browser, and your models.
 
+![Dashboard — pipeline visualization with stats and activity](docs/screenshots/dashboard.png)
+
+![Models — registered models with status and run history](docs/screenshots/models.png)
+
 ---
 
 ## Features
