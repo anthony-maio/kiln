@@ -1,22 +1,23 @@
 from __future__ import annotations
 
-import json
-import os
 import subprocess
-import sys
 import threading
 from collections import deque
 from pathlib import Path
 from typing import Optional
 
-from kiln_backend.models import ROOT_DIR
+from kiln_backend.executors.benchmarks import finalize_benchmark_stage, prepare_benchmark_stage
+from kiln_backend.executors.documentation import execute_documentation_stage
+from kiln_backend.executors.packaging import execute_packaging_stage
+from kiln_backend.executors.serving import execute_serving_stage
 from kiln_backend.storage import (
     apply_stage_completion,
+    benchmark_config_for_run,
+    get_candidate_from_config,
     get_db,
-    get_job_with_relations,
     get_project_config_for_project,
+    mark_stage_running,
     row_to_dict,
-    tail_text_file,
     update_job_status,
     utc_now_iso,
 )
@@ -75,14 +76,35 @@ class JobRunner:
             apply_stage_completion(
                 db,
                 job["run_id"],
-                "benchmarks",
+                job["job_type"],
                 "warning",
-                results={"tool": "lm-eval-harness", "benchmarks": []},
-                logs="Benchmark job canceled before execution.",
+                results={"canceled": True},
+                logs=f"{job['job_type'].title()} job canceled before execution.",
             )
             return True
         finally:
             db.close()
+
+    def _final_job_status(self, stage_status: str) -> str:
+        return "failed" if stage_status == "failed" else "completed"
+
+    def _complete_stage_job(self, db, job: dict, stage_key: str, result: dict) -> None:
+        apply_stage_completion(
+            db,
+            job["run_id"],
+            stage_key,
+            result["status"],
+            results=result["payload"].get("results"),
+            logs=result["payload"].get("logs"),
+        )
+        update_job_status(
+            db,
+            job["id"],
+            status=self._final_job_status(result["status"]),
+            error=result.get("error") if result["status"] == "failed" else None,
+            completed_at=utc_now_iso(),
+            log_path=result.get("log_path"),
+        )
 
     def _run(self) -> None:
         while True:
@@ -122,6 +144,19 @@ class JobRunner:
                 )
                 return
 
+            run = row_to_dict(
+                db.execute("SELECT * FROM pipeline_runs WHERE id=?", (job["run_id"],)).fetchone()
+            )
+            if not run:
+                update_job_status(
+                    db,
+                    job_id,
+                    status="failed",
+                    error="Run not found",
+                    completed_at=utc_now_iso(),
+                )
+                return
+
             config = get_project_config_for_project(project)
             if config is None:
                 update_job_status(
@@ -134,143 +169,131 @@ class JobRunner:
                 apply_stage_completion(
                     db,
                     job["run_id"],
-                    "benchmarks",
+                    job["job_type"],
                     "failed",
-                    results={"tool": "lm-eval-harness", "benchmarks": []},
+                    results={"job_type": job["job_type"]},
                     logs="Project config is invalid.",
                 )
                 return
+            stage_key = job["job_type"]
+            project_root = Path(project["root_path"])
+            mark_stage_running(db, job["run_id"], stage_key)
 
-            logs_dir = (Path(project["root_path"]) / ".kiln" / "logs").resolve()
-            eval_dir = (
-                Path(project["root_path"]) / ".kiln" / "eval_results" / f"run-{job['run_id']}"
-            ).resolve()
-            logs_dir.mkdir(parents=True, exist_ok=True)
-            eval_dir.mkdir(parents=True, exist_ok=True)
+            if stage_key == "benchmarks":
+                benchmarks_config = benchmark_config_for_run(config, run.get("candidate_name"))
+                prepared = prepare_benchmark_stage(
+                    project_root=project_root,
+                    run_id=job["run_id"],
+                    model_id=config.model.repo_id or config.model.name,
+                    benchmarks_config=benchmarks_config,
+                )
 
-            log_path = logs_dir / f"run-{job['run_id']}-benchmarks.log"
-            result_path = logs_dir / f"run-{job['run_id']}-benchmarks-result.json"
-            command = [
-                sys.executable,
-                str(ROOT_DIR / "adapters" / "lm_eval_adapter.py"),
-                "--model-id",
-                config.model.repo_id or config.model.name,
-                "--tasks",
-                ",".join(task.name for task in config.benchmarks.tasks),
-                "--output-dir",
-                str(eval_dir),
-                "--result-json",
-                str(result_path),
-                "--model",
-                config.benchmarks.model,
-                "--model-args",
-                config.benchmarks.model_args,
-                "--batch-size",
-                config.benchmarks.batch_size,
-                "--num-fewshot",
-                str(config.benchmarks.num_fewshot),
-            ]
-            if config.benchmarks.device:
-                command.extend(["--device", config.benchmarks.device])
+                update_job_status(
+                    db,
+                    job_id,
+                    status="running",
+                    command=prepared.command_json(),
+                    started_at=utc_now_iso(),
+                    log_path=str(prepared.log_path),
+                )
+
+                with prepared.log_path.open("a", encoding="utf-8") as handle:
+                    process = subprocess.Popen(
+                        prepared.command,
+                        stdout=handle,
+                        stderr=subprocess.STDOUT,
+                        text=True,
+                    )
+                    with self._condition:
+                        self._active_process = process
+                    update_job_status(db, job_id, status="running", pid=process.pid)
+
+                    try:
+                        return_code = process.wait(timeout=benchmarks_config.timeout_minutes * 60)
+                    except subprocess.TimeoutExpired:
+                        process.kill()
+                        result = finalize_benchmark_stage(
+                            prepared,
+                            1,
+                            error_message=(
+                                f"Benchmark job timed out after {benchmarks_config.timeout_minutes} minutes."
+                            ),
+                        )
+                        self._complete_stage_job(db, job, stage_key, result)
+                        update_job_status(
+                            db,
+                            job_id,
+                            status="failed",
+                            error=f"Timed out after {benchmarks_config.timeout_minutes} minutes",
+                            completed_at=utc_now_iso(),
+                        )
+                        return
+
+                if job_id in self._cancel_requested:
+                    result = finalize_benchmark_stage(
+                        prepared,
+                        1,
+                        error_message="Benchmark job canceled by user.",
+                    )
+                    apply_stage_completion(
+                        db,
+                        job["run_id"],
+                        stage_key,
+                        "warning",
+                        results=result["payload"].get("results"),
+                        logs=result["payload"].get("logs"),
+                    )
+                    update_job_status(
+                        db,
+                        job_id,
+                        status="canceled",
+                        error="Canceled by user",
+                        completed_at=utc_now_iso(),
+                    )
+                    return
+
+                result = finalize_benchmark_stage(prepared, return_code)
+                self._complete_stage_job(db, job, stage_key, result)
+                if return_code != 0:
+                    update_job_status(
+                        db,
+                        job_id,
+                        status="failed",
+                        error=f"Adapter exited with code {return_code}",
+                        completed_at=utc_now_iso(),
+                    )
+                return
 
             update_job_status(
                 db,
                 job_id,
                 status="running",
-                command=json.dumps(command),
                 started_at=utc_now_iso(),
-                log_path=str(log_path),
             )
 
-            env = os.environ.copy()
-            with log_path.open("a", encoding="utf-8") as handle:
-                process = subprocess.Popen(
-                    command,
-                    cwd=ROOT_DIR,
-                    env=env,
-                    stdout=handle,
-                    stderr=subprocess.STDOUT,
-                    text=True,
+            candidate = get_candidate_from_config(config, run.get("candidate_name"))
+            if stage_key == "documentation":
+                result = execute_documentation_stage(project_root=project_root, run_id=job["run_id"])
+            elif stage_key == "packaging":
+                if candidate is None:
+                    raise RuntimeError("Packaging automation requires a version 2 candidate config")
+                result = execute_packaging_stage(
+                    project_root=project_root,
+                    run_id=job["run_id"],
+                    candidate=candidate,
                 )
-                with self._condition:
-                    self._active_process = process
-                update_job_status(db, job_id, status="running", pid=process.pid)
+            elif stage_key == "serving":
+                if candidate is None:
+                    raise RuntimeError("Serving automation requires a version 2 candidate config")
+                result = execute_serving_stage(
+                    project_root=project_root,
+                    run_id=job["run_id"],
+                    candidate=candidate,
+                )
+            else:
+                raise RuntimeError(f"Unsupported job_type: {stage_key}")
 
-                try:
-                    return_code = process.wait(timeout=config.benchmarks.timeout_minutes * 60)
-                except subprocess.TimeoutExpired:
-                    process.kill()
-                    apply_stage_completion(
-                        db,
-                        job["run_id"],
-                        "benchmarks",
-                        "failed",
-                        results={"tool": "lm-eval-harness", "benchmarks": []},
-                        logs=f"Benchmark job timed out after {config.benchmarks.timeout_minutes} minutes.",
-                    )
-                    update_job_status(
-                        db,
-                        job_id,
-                        status="failed",
-                        error=f"Timed out after {config.benchmarks.timeout_minutes} minutes",
-                        completed_at=utc_now_iso(),
-                    )
-                    return
-
-            log_tail = tail_text_file(log_path)
-            if job_id in self._cancel_requested:
-                apply_stage_completion(
-                    db,
-                    job["run_id"],
-                    "benchmarks",
-                    "warning",
-                    results={"tool": "lm-eval-harness", "benchmarks": []},
-                    logs=log_tail or "Benchmark job canceled.",
-                )
-                update_job_status(
-                    db,
-                    job_id,
-                    status="canceled",
-                    error="Canceled by user",
-                    completed_at=utc_now_iso(),
-                )
-                return
-
-            if return_code != 0:
-                apply_stage_completion(
-                    db,
-                    job["run_id"],
-                    "benchmarks",
-                    "failed",
-                    results={"tool": "lm-eval-harness", "benchmarks": []},
-                    logs=log_tail,
-                )
-                update_job_status(
-                    db,
-                    job_id,
-                    status="failed",
-                    error=f"Adapter exited with code {return_code}",
-                    completed_at=utc_now_iso(),
-                )
-                return
-
-            payload = json.loads(result_path.read_text(encoding="utf-8"))
-            apply_stage_completion(
-                db,
-                job["run_id"],
-                "benchmarks",
-                payload.get("status", "failed"),
-                results=payload.get("results"),
-                logs=payload.get("logs") or log_tail,
-            )
-            final_job_status = "completed" if payload.get("status") == "passed" else "failed"
-            update_job_status(
-                db,
-                job_id,
-                status=final_job_status,
-                error=None if final_job_status == "completed" else "Adapter returned failed status",
-                completed_at=utc_now_iso(),
-            )
+            self._complete_stage_job(db, job, stage_key, result)
         except Exception as exc:  # pragma: no cover - operational fallback
             try:
                 update_job_status(
@@ -285,9 +308,9 @@ class JobRunner:
                     apply_stage_completion(
                         db,
                         job["run_id"],
-                        "benchmarks",
+                        job["job_type"],
                         "failed",
-                        results={"tool": "lm-eval-harness", "benchmarks": []},
+                        results={"job_type": job["job_type"]},
                         logs=str(exc),
                     )
             except Exception:

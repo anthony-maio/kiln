@@ -20,6 +20,7 @@ from kiln_backend.models import (
     ModelCreate,
     ProjectConfig,
     ProjectCreate,
+    ProjectRunCreate,
     REAL_INTEGRATIONS,
     RunCreate,
     STAGE_DEFINITIONS,
@@ -322,17 +323,29 @@ def sync_project(project_id: int):
 
 
 @app.post("/api/projects/{project_id}/runs", status_code=201)
-def start_project_run(project_id: int):
+def start_project_run(project_id: int, payload: Optional[ProjectRunCreate] = None):
     db = get_db()
     try:
         project = row_to_dict(db.execute("SELECT * FROM projects WHERE id=?", (project_id,)).fetchone())
         if not project:
             raise HTTPException(404, "Project not found")
         config = load_project_config_from_path(Path(project["config_path"]))
-        run, job = create_project_run(db, project, config)
+        run, job = create_project_run(
+            db,
+            project,
+            config,
+            candidate_name=payload.candidate_name if payload else None,
+        )
         if JOB_RUNNER is None:
             raise HTTPException(503, "Job runner is not available")
-        JOB_RUNNER.enqueue(job["id"])
+        queued_jobs = rows_to_list(
+            db.execute(
+                "SELECT id FROM jobs WHERE run_id=? AND status='queued' ORDER BY id",
+                (run["id"],),
+            ).fetchall()
+        )
+        for queued_job in queued_jobs:
+            JOB_RUNNER.enqueue(queued_job["id"])
         return {"run": run, "job": job}
     finally:
         db.close()

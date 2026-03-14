@@ -1,4 +1,7 @@
-version: 1
+# Example config for candidate-aware pre-release runs.
+# Each run targets exactly one candidate from this list.
+
+version: 2
 
 model:
   name: "My Model"
@@ -7,28 +10,65 @@ model:
   architecture: "Mistral"
   description: "Optional"
 
-benchmarks:
-  provider: "lm_eval"
-  model: "hf"
-  model_args: "pretrained=org/model"
-  tasks:
-    - name: "hellaswag"
-      min_score: 0.75
-    - name: "arc_easy"
-      min_score: 0.70
-  device: "cuda:0"
-  num_fewshot: 0
-  batch_size: "auto"
-  timeout_minutes: 120
+candidates:
+  - name: "base-hf"
+    format: "hf"
+    path: "./artifacts/base-hf"
+    runtime: "vllm"
+    benchmarks:
+      provider: "lm_eval"
+      model: "hf"
+      model_args: "pretrained=org/model"
+      tasks:
+        - name: "hellaswag"
+          min_score: 0.75
+        - name: "arc_easy"
+          min_score: 0.70
+      device: "cuda:0"
+      num_fewshot: 0
+      batch_size: "auto"
+      timeout_minutes: 120
+    serving:
+      enabled: true
+      runtime: "vllm"
+      model_args: "--model org/model"
+      startup_timeout_seconds: 120
+      smoke_prompts:
+        - "Say hello."
+      max_latency_ms: 5000
+
+  - name: "q4-gguf"
+    format: "gguf"
+    path: "./artifacts/model-q4.gguf"
+    runtime: "llama_cpp"
+    benchmarks:
+      provider: "lm_eval"
+      model: "hf"
+      model_args: "pretrained=org/model"
+      tasks:
+        - name: "hellaswag"
+          min_score: 0.70
+      device: "cuda:0"
+      num_fewshot: 0
+      batch_size: "auto"
+      timeout_minutes: 120
+    serving:
+      enabled: true
+      runtime: "llama_cpp"
+      model_args: "--ctx-size 4096"
+      startup_timeout_seconds: 120
+      smoke_prompts:
+        - "Say hello."
+      max_latency_ms: 5000
+
+report:
+  output_dir: ".kiln/reports"
 
 manual_stages:
   safety: "required"
   documentation: "required"
   packaging: "required"
-  serving: "skip"
+  serving: "required"
   monitoring: "skip"
   incidents: "skip"
   improvement: "skip"
-
-report:
-  output_dir: ".kiln/reports"

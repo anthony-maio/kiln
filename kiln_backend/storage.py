@@ -12,16 +12,31 @@ import yaml
 from fastapi import HTTPException
 from pydantic import ValidationError
 
+from kiln_backend.policy import evaluate_benchmark_payload
 from kiln_backend.models import (
     CONFIG_FILENAME,
     MANUAL_STAGE_KEYS,
+    CandidateBenchmarksConfig,
+    CandidateConfig,
     ProjectConfig,
+    PROJECT_REAL_INTEGRATIONS,
+    PROJECT_STAGE_DEFINITIONS,
     REAL_INTEGRATIONS,
     STAGE_DEFINITIONS,
     TERMINAL_STAGE_STATUSES,
 )
 
 DEFAULT_DB_PATH = str(Path(__file__).resolve().parent.parent / "kiln.db")
+DEFAULT_MANUAL_STAGE_SELECTION = {
+    "safety": "required",
+    "documentation": "required",
+    "packaging": "required",
+    "serving": "skip",
+    "monitoring": "skip",
+    "incidents": "skip",
+    "improvement": "skip",
+}
+AUTOMATED_PROJECT_STAGE_KEYS = {"benchmarks", "documentation", "packaging", "serving"}
 
 
 def utc_now() -> datetime:
@@ -105,6 +120,10 @@ def init_db() -> None:
             id INTEGER PRIMARY KEY AUTOINCREMENT,
             model_id INTEGER REFERENCES models(id),
             project_id INTEGER REFERENCES projects(id),
+            candidate_name TEXT,
+            candidate_format TEXT,
+            candidate_path TEXT,
+            resolved_runtime TEXT,
             status TEXT DEFAULT 'pending',
             mode TEXT DEFAULT 'mock',
             started_at TIMESTAMP,
@@ -172,6 +191,14 @@ def init_db() -> None:
         db.execute("ALTER TABLE pipeline_runs ADD COLUMN mode TEXT DEFAULT 'mock'")
     if "project_id" not in run_columns:
         db.execute("ALTER TABLE pipeline_runs ADD COLUMN project_id INTEGER REFERENCES projects(id)")
+    if "candidate_name" not in run_columns:
+        db.execute("ALTER TABLE pipeline_runs ADD COLUMN candidate_name TEXT")
+    if "candidate_format" not in run_columns:
+        db.execute("ALTER TABLE pipeline_runs ADD COLUMN candidate_format TEXT")
+    if "candidate_path" not in run_columns:
+        db.execute("ALTER TABLE pipeline_runs ADD COLUMN candidate_path TEXT")
+    if "resolved_runtime" not in run_columns:
+        db.execute("ALTER TABLE pipeline_runs ADD COLUMN resolved_runtime TEXT")
 
     project_columns = {
         row["name"] for row in db.execute("PRAGMA table_info(projects)").fetchall()
@@ -252,6 +279,145 @@ def validate_project_config_payload(payload: Any) -> ProjectConfig:
         return ProjectConfig.model_validate(payload)
     except ValidationError as exc:
         raise HTTPException(422, exc.errors()) from exc
+
+
+def get_candidate_from_config(
+    config: ProjectConfig, candidate_name: Optional[str]
+) -> Optional[CandidateConfig]:
+    if config.version == 1:
+        return None
+    if not candidate_name:
+        raise HTTPException(422, "candidate_name is required for version 2 project configs")
+
+    for candidate in config.candidates or []:
+        if candidate.name == candidate_name:
+            return candidate
+
+    raise HTTPException(422, f"Unknown candidate_name: {candidate_name}")
+
+
+def resolve_candidate_path(project_root: Path, candidate: CandidateConfig) -> Path:
+    candidate_path = Path(candidate.path).expanduser()
+    if not candidate_path.is_absolute():
+        candidate_path = (project_root / candidate_path).resolve()
+    else:
+        candidate_path = candidate_path.resolve()
+    return candidate_path
+
+
+def resolve_candidate_runtime(candidate: CandidateConfig) -> str:
+    if candidate.runtime:
+        return candidate.runtime
+    if candidate.serving.runtime:
+        return candidate.serving.runtime
+    return "llama_cpp" if candidate.format == "gguf" else "vllm"
+
+
+def manual_stage_selection_for_config(config: ProjectConfig) -> dict[str, str]:
+    if config.manual_stages is not None:
+        return config.manual_stages.model_dump(mode="python")
+    defaults = dict(DEFAULT_MANUAL_STAGE_SELECTION)
+    if config.version == 2:
+        defaults["serving"] = "required"
+    return defaults
+
+
+def resolve_run_target(
+    project: dict[str, Any],
+    config: ProjectConfig,
+    candidate_name: Optional[str],
+) -> dict[str, Any]:
+    if config.version == 1:
+        return {
+            "candidate_name": None,
+            "candidate_format": None,
+            "candidate_path": None,
+            "resolved_runtime": None,
+            "benchmarks": config.benchmarks,
+            "manual_stages": manual_stage_selection_for_config(config),
+        }
+
+    candidate = get_candidate_from_config(config, candidate_name)
+    assert candidate is not None
+    candidate_path = resolve_candidate_path(Path(project["root_path"]), candidate)
+    if not candidate_path.exists():
+        raise HTTPException(422, f"Candidate artifact path does not exist: {candidate_path}")
+
+    return {
+        "candidate_name": candidate.name,
+        "candidate_format": candidate.format,
+        "candidate_path": str(candidate_path),
+        "resolved_runtime": resolve_candidate_runtime(candidate),
+        "benchmarks": candidate.benchmarks,
+        "manual_stages": manual_stage_selection_for_config(config),
+    }
+
+
+def benchmark_config_for_run(
+    config: ProjectConfig, candidate_name: Optional[str]
+) -> CandidateBenchmarksConfig:
+    candidate = get_candidate_from_config(config, candidate_name)
+    if candidate is None:
+        if config.benchmarks is None:
+            raise HTTPException(422, "Project config is missing benchmark settings")
+        return config.benchmarks
+    return candidate.benchmarks
+
+
+def build_project_stage_plan(
+    config: ProjectConfig,
+    candidate_name: Optional[str],
+) -> list[dict[str, Any]]:
+    manual_selection = manual_stage_selection_for_config(config)
+    candidate = get_candidate_from_config(config, candidate_name) if config.version == 2 else None
+    stage_plan: list[dict[str, Any]] = []
+
+    for stage_key, stage_name, stage_order in PROJECT_STAGE_DEFINITIONS:
+        status = "pending"
+        logs = "Manual completion required in phase 1."
+        job_required = False
+
+        if stage_key == "benchmarks":
+            job_required = True
+            logs = "Queued for the local job runner."
+        elif manual_selection.get(stage_key) == "skip":
+            status = "skipped"
+            logs = "Skipped per project config."
+        elif stage_key == "safety":
+            logs = "Manual completion required in phase 1."
+        elif stage_key == "documentation":
+            job_required = True
+            logs = "Queued for the local job runner."
+        elif stage_key == "packaging":
+            if candidate is None:
+                status = "skipped"
+                logs = "Packaging automation requires a version 2 candidate config."
+            else:
+                job_required = True
+                logs = "Queued for the local job runner."
+        elif stage_key == "serving":
+            if candidate is None:
+                status = "skipped"
+                logs = "Serving automation requires a version 2 candidate config."
+            elif not candidate.serving.enabled:
+                status = "skipped"
+                logs = "Serving disabled for the selected candidate."
+            else:
+                job_required = True
+                logs = "Queued for the local job runner."
+
+        stage_plan.append(
+            {
+                "stage_key": stage_key,
+                "stage_name": stage_name,
+                "stage_order": stage_order,
+                "status": status,
+                "logs": logs,
+                "job_required": job_required,
+            }
+        )
+
+    return stage_plan
 
 
 def write_project_config(config_path: Path, config: ProjectConfig) -> None:
@@ -492,6 +658,7 @@ def build_release_report(run: dict[str, Any]) -> dict[str, Any]:
     if not next_actions:
         next_actions.append("Release gate passed. Attach this report to your model release.")
 
+    integrations = PROJECT_REAL_INTEGRATIONS if run.get("project_id") else REAL_INTEGRATIONS
     report = {
         "run_id": run["id"],
         "project_id": run.get("project_id"),
@@ -513,7 +680,7 @@ def build_release_report(run: dict[str, Any]) -> dict[str, Any]:
             "name": stage["stage_name"],
             "status": stage["status"],
             "duration_seconds": stage.get("duration_seconds"),
-            "integrated_in_real_mode": stage["stage_key"] in REAL_INTEGRATIONS,
+            "integrated_in_real_mode": stage["stage_key"] in integrations,
         }
         if stage.get("results") is not None:
             entry["results"] = stage["results"]
@@ -595,14 +762,6 @@ def write_report_artifacts(db: sqlite3.Connection, run_id: int) -> dict[str, str
     return artifacts
 
 
-def benchmark_threshold_map(config: ProjectConfig) -> dict[str, float]:
-    thresholds = {}
-    for task in config.benchmarks.tasks:
-        if task.min_score is not None:
-            thresholds[task.name] = task.min_score * 100
-    return thresholds
-
-
 def evaluate_benchmark_results(
     db: sqlite3.Connection,
     run_id: int,
@@ -624,31 +783,10 @@ def evaluate_benchmark_results(
     if config is None:
         return requested_status, results
 
-    thresholds = benchmark_threshold_map(config)
-    if not thresholds:
-        return "warning", results
-
-    benchmarks = results.get("benchmarks") or []
-    matched = False
-    any_failed = False
-
-    for benchmark in benchmarks:
-        name = benchmark.get("name")
-        if name not in thresholds:
-            continue
-        matched = True
-        benchmark["target_min"] = round(thresholds[name], 2)
-        benchmark["status"] = (
-            "pass" if float(benchmark.get("score", 0)) >= thresholds[name] else "fail"
-        )
-        if benchmark["status"] == "fail":
-            any_failed = True
-
-    if not matched:
-        return "warning", results
-    if any_failed:
-        return "failed", results
-    return "passed", results
+    return evaluate_benchmark_payload(
+        benchmark_config_for_run(config, run.get("candidate_name")),
+        results,
+    )
 
 
 def refresh_run_status(db: sqlite3.Connection, run_id: int) -> str:
@@ -762,33 +900,47 @@ def create_project_run(
     db: sqlite3.Connection,
     project: dict[str, Any],
     config: ProjectConfig,
+    *,
+    candidate_name: Optional[str] = None,
 ) -> tuple[dict[str, Any], dict[str, Any]]:
     model = upsert_model_from_project_config(db, config)
+    run_target = resolve_run_target(project, config, candidate_name)
+    stage_plan = build_project_stage_plan(config, candidate_name)
     started_at = utc_now()
     run_cursor = db.execute(
         """
-        INSERT INTO pipeline_runs (model_id, project_id, status, mode, started_at, created_at, trigger)
-        VALUES (?, ?, 'running', 'real', ?, ?, 'project')
+        INSERT INTO pipeline_runs (
+            model_id,
+            project_id,
+            candidate_name,
+            candidate_format,
+            candidate_path,
+            resolved_runtime,
+            status,
+            mode,
+            started_at,
+            created_at,
+            trigger
+        )
+        VALUES (?, ?, ?, ?, ?, ?, 'running', 'real', ?, ?, 'project')
         """,
-        (model["id"], project["id"], started_at.isoformat(), started_at.isoformat()),
+        (
+            model["id"],
+            project["id"],
+            run_target["candidate_name"],
+            run_target["candidate_format"],
+            run_target["candidate_path"],
+            run_target["resolved_runtime"],
+            started_at.isoformat(),
+            started_at.isoformat(),
+        ),
     )
     run_id = run_cursor.lastrowid
 
-    for stage_key, stage_name, stage_order in STAGE_DEFINITIONS:
-        status = "pending"
+    first_job_id: Optional[int] = None
+    for stage in stage_plan:
         stage_started_at = None
-        stage_completed_at = None
-        logs = "Manual completion required in v0.2."
-
-        if stage_key == "benchmarks":
-            status = "running"
-            stage_started_at = started_at.isoformat()
-            logs = "Managed by the local job runner."
-        elif getattr(config.manual_stages, stage_key) == "skip":
-            status = "skipped"
-            stage_completed_at = started_at.isoformat()
-            logs = "Skipped per project config."
-
+        stage_completed_at = started_at.isoformat() if stage["status"] == "skipped" else None
         db.execute(
             """
             INSERT INTO pipeline_stages (
@@ -797,24 +949,25 @@ def create_project_run(
             """,
             (
                 run_id,
-                stage_key,
-                stage_name,
-                stage_order,
-                status,
+                stage["stage_key"],
+                stage["stage_name"],
+                stage["stage_order"],
+                stage["status"],
                 stage_started_at,
                 stage_completed_at,
-                logs,
+                stage["logs"],
             ),
         )
-
-    job_cursor = db.execute(
-        """
-        INSERT INTO jobs (project_id, run_id, job_type, status, queued_at)
-        VALUES (?, ?, 'benchmarks', 'queued', ?)
-        """,
-        (project["id"], run_id, started_at.isoformat()),
-    )
-    job_id = job_cursor.lastrowid
+        if stage["job_required"]:
+            job_cursor = db.execute(
+                """
+                INSERT INTO jobs (project_id, run_id, job_type, status, queued_at)
+                VALUES (?, ?, ?, 'queued', ?)
+                """,
+                (project["id"], run_id, stage["stage_key"], started_at.isoformat()),
+            )
+            if first_job_id is None:
+                first_job_id = job_cursor.lastrowid
 
     db.execute(
         "UPDATE projects SET model_id=?, last_run_id=?, updated_at=? WHERE id=?",
@@ -829,7 +982,9 @@ def create_project_run(
     )
     db.commit()
     write_report_artifacts(db, run_id)
-    return get_run_with_stages(db, run_id), get_job_with_relations(db, job_id)
+    if first_job_id is None:
+        raise HTTPException(500, "Project run was created without any automated jobs")
+    return get_run_with_stages(db, run_id), get_job_with_relations(db, first_job_id)
 
 
 def get_job_with_relations(db: sqlite3.Connection, job_id: int) -> Optional[dict[str, Any]]:
