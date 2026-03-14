@@ -1,5 +1,6 @@
 __pycache__/
 .pytest_cache/
+.worktrees/
 *.pyc
 *.pyo
 kiln.db
