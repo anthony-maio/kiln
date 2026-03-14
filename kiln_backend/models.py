@@ -8,7 +8,7 @@ from pydantic import BaseModel, ConfigDict, Field, model_validator
 ROOT_DIR = Path(__file__).resolve().parent.parent
 STATIC_DIR = ROOT_DIR
 CONFIG_FILENAME = "kiln.yaml"
-APP_VERSION = "0.2.0"
+APP_VERSION = "0.3.0-rc1"
 
 DEFAULT_CORS_ORIGINS = [
     "http://localhost",
