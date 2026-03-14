@@ -1,22 +1,20 @@
 # Kiln Release Readiness Report
 
-Run ID: 42  
-Model: my-org/my-model-7b  
-Mode: real  
-Run Status: passed  
-Verdict: READY
+Run ID: 42
+Project: my-model-repo
+Model: my-org/my-model-7b
+Mode: real
+Run Status: running
+Verdict: NEEDS_REVIEW
 
 ## Stage Status
 
 - Academic Benchmarks: passed (real-adapter)
-- Safety Evaluation: passed (manual/mock)
-- Documentation: passed (manual/mock)
-- Packaging & Distribution: passed (manual/mock)
-- Inference Serving: passed (manual/mock)
-- Production Monitoring: skipped (manual/mock)
-- Incident Response: skipped (manual/mock)
-- Continuous Improvement: skipped (manual/mock)
+- Safety Evaluation: passed (real-adapter)
+- Documentation: passed (real-adapter)
+- Packaging & Distribution: passed (real-adapter)
+- Inference Serving: skipped (real-adapter)
 
 ## Next Actions
 
-- Release gate passed. Export this report and attach it to your model release.
+- Review the skipped serving gate if this candidate is meant to be deployed locally.
