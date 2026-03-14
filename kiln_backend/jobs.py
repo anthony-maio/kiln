@@ -9,6 +9,7 @@ from typing import Optional
 from kiln_backend.executors.benchmarks import finalize_benchmark_stage, prepare_benchmark_stage
 from kiln_backend.executors.documentation import execute_documentation_stage
 from kiln_backend.executors.packaging import execute_packaging_stage
+from kiln_backend.executors.safety import execute_safety_stage
 from kiln_backend.executors.serving import execute_serving_stage
 from kiln_backend.storage import (
     apply_stage_completion,
@@ -274,6 +275,17 @@ class JobRunner:
             candidate = get_candidate_from_config(config, run.get("candidate_name"))
             if stage_key == "documentation":
                 result = execute_documentation_stage(project_root=project_root, run_id=job["run_id"])
+            elif stage_key == "safety":
+                if candidate is None:
+                    raise RuntimeError("Safety automation requires a version 2 candidate config")
+                if config.safety is None:
+                    raise RuntimeError("Safety automation is not configured for this project")
+                result = execute_safety_stage(
+                    project_root=project_root,
+                    run_id=job["run_id"],
+                    candidate=candidate,
+                    safety_config=config.safety,
+                )
             elif stage_key == "packaging":
                 if candidate is None:
                     raise RuntimeError("Packaging automation requires a version 2 candidate config")

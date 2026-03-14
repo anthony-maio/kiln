@@ -10,11 +10,11 @@ Verdict: NEEDS_REVIEW
 ## Stage Status
 
 - Academic Benchmarks: passed (real-adapter)
-- Safety Evaluation: pending (manual)
+- Safety Evaluation: passed (real-adapter)
 - Documentation: passed (real-adapter)
 - Packaging & Distribution: passed (real-adapter)
 - Inference Serving: skipped (real-adapter)
 
 ## Next Actions
 
-- Complete remaining stages: Safety Evaluation.
+- Review the skipped serving gate if this candidate is meant to be deployed locally.

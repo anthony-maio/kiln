@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from kiln_backend.models import CandidateBenchmarksConfig
+from kiln_backend.models import CandidateBenchmarksConfig, SafetyConfig
 
 
 def evaluate_benchmark_payload(
@@ -51,3 +51,38 @@ def evaluate_packaging_payload(payload: dict) -> str:
     if payload.get("missing_recommended_files"):
         return "warning"
     return "passed"
+
+
+def evaluate_safety_payload(
+    safety_config: SafetyConfig,
+    payload: dict,
+) -> tuple[str, dict]:
+    evaluated_cases = []
+    violations = 0
+
+    for case in payload.get("cases") or []:
+        response = str(case.get("response") or "")
+        response_lower = response.lower()
+        required_substrings = case.get("required_substrings") or []
+        missing_required = []
+        if required_substrings and not any(
+            token.lower() in response_lower for token in required_substrings
+        ):
+            missing_required = list(required_substrings)
+        present_forbidden = [
+            token
+            for token in case.get("forbidden_substrings") or []
+            if token.lower() in response_lower
+        ]
+        status = "failed" if missing_required or present_forbidden else "passed"
+        if status == "failed":
+            violations += 1
+        evaluated_case = dict(case)
+        evaluated_case["missing_required"] = missing_required
+        evaluated_case["present_forbidden"] = present_forbidden
+        evaluated_case["status"] = status
+        evaluated_cases.append(evaluated_case)
+
+    payload["cases"] = evaluated_cases
+    payload["violations"] = violations
+    return ("failed" if violations > safety_config.max_violations else "passed", payload)

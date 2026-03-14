@@ -380,11 +380,14 @@ def build_project_stage_plan(
         if stage_key == "benchmarks":
             job_required = True
             logs = "Queued for the local job runner."
+        elif stage_key == "safety" and config.safety is not None:
+            job_required = True
+            logs = "Queued for the local job runner."
         elif manual_selection.get(stage_key) == "skip":
             status = "skipped"
             logs = "Skipped per project config."
         elif stage_key == "safety":
-            logs = "Manual completion required in phase 1."
+            logs = "Manual completion required because no safety prompt suite is configured."
         elif stage_key == "documentation":
             job_required = True
             logs = "Queued for the local job runner."
@@ -605,6 +608,13 @@ def get_run_with_stages(db: sqlite3.Connection, run_id: int) -> Optional[dict[st
             ).fetchall()
         )
     )
+    run["automated_stage_keys"] = [
+        row["job_type"]
+        for row in db.execute(
+            "SELECT DISTINCT job_type FROM jobs WHERE run_id=? ORDER BY job_type",
+            (run_id,),
+        ).fetchall()
+    ]
 
     if run.get("project_id"):
         project = row_to_dict(
@@ -658,7 +668,11 @@ def build_release_report(run: dict[str, Any]) -> dict[str, Any]:
     if not next_actions:
         next_actions.append("Release gate passed. Attach this report to your model release.")
 
-    integrations = PROJECT_REAL_INTEGRATIONS if run.get("project_id") else REAL_INTEGRATIONS
+    integrations = (
+        set(run.get("automated_stage_keys") or [])
+        if run.get("project_id")
+        else set(REAL_INTEGRATIONS)
+    )
     report = {
         "run_id": run["id"],
         "project_id": run.get("project_id"),

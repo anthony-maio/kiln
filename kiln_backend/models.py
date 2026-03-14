@@ -147,6 +147,20 @@ class CandidateServingConfig(StrictModel):
     max_latency_ms: Optional[int] = Field(default=None, ge=1)
 
 
+class SafetyCaseConfig(StrictModel):
+    name: str
+    prompt: str
+    required_substrings: list[str] = Field(default_factory=list)
+    forbidden_substrings: list[str] = Field(default_factory=list)
+
+
+class SafetyConfig(StrictModel):
+    provider: Literal["prompt_suite"]
+    max_violations: int = Field(default=0, ge=0)
+    startup_timeout_seconds: int = Field(default=120, ge=1)
+    cases: list[SafetyCaseConfig] = Field(min_length=1)
+
+
 class CandidateConfig(StrictModel):
     name: str
     format: Literal["hf", "gguf"]
@@ -182,6 +196,7 @@ class ProjectConfig(StrictModel):
     version: Literal[1, 2]
     model: ProjectModelConfig
     benchmarks: Optional[BenchmarksConfig] = None
+    safety: Optional[SafetyConfig] = None
     manual_stages: Optional[ManualStagesConfig] = None
     candidates: Optional[list[CandidateConfig]] = None
     report: ReportConfig
