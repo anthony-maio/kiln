@@ -1,9 +1,10 @@
-# Kiln v0.1.0 Release Notes
+# Kiln Release Notes
 
 ## Highlights
-- [ ] Local single-user release workflow
+- [ ] Local single-user workflow
 - [ ] Release readiness report (JSON + Markdown export)
-- [ ] Real benchmark adapter (`lm-eval-harness`)
+- [ ] Candidate-aware project runs
+- [ ] Automated stages shipped in this release
 
 ## What changed
 
@@ -22,12 +23,13 @@
   - `KILN_ENABLE_SEED_ENDPOINT=true`
 
 ## Known limitations
-- v0.1 supports local single-user mode only.
-- Only benchmark stage has a real adapter in this release.
-- Remaining stages are manual/mock unless integrated by contributors.
+- Local single-user only.
+- Safety automation is a prompt suite, not a full external safety harness.
+- Serving is a smoke check, not a throughput benchmark.
+- Kiln does not download or convert model artifacts for you.
 
 ## Verification checklist
 - [ ] `pytest -q` passes
-- [ ] `python -m py_compile api_server.py adapters/lm_eval_adapter.py`
+- [ ] `python -m py_compile api_server.py kiln_backend/models.py kiln_backend/storage.py kiln_backend/jobs.py kiln_backend/policy.py kiln_backend/runtimes.py kiln_backend/executors/base.py kiln_backend/executors/benchmarks.py kiln_backend/executors/documentation.py kiln_backend/executors/packaging.py kiln_backend/executors/safety.py kiln_backend/executors/serving.py adapters/lm_eval_adapter.py`
 - [ ] `node --check app.js`
 - [ ] Docker quickstart works on clean machine
