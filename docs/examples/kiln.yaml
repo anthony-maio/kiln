@@ -1,5 +1,8 @@
 # Example config for candidate-aware pre-release runs.
 # Each run targets exactly one candidate from this list.
+# Packaging checks validate the artifact shape on disk:
+# - hf candidates should contain config.json, weights, and tokenizer assets
+# - gguf candidates should point to a .gguf file or directory containing .gguf files
 
 version: 2
 

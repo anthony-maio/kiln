@@ -10,10 +10,10 @@ Verdict: NEEDS_REVIEW
 ## Stage Status
 
 - Academic Benchmarks: passed (real-adapter)
-- Safety Evaluation: passed (real-adapter)
-- Documentation: passed (real-adapter)
-- Packaging & Distribution: passed (real-adapter)
-- Inference Serving: skipped (real-adapter)
+- Safety Evaluation: passed (runtime-backed prompt suite)
+- Documentation: passed (README + model card checks)
+- Packaging & Distribution: passed (artifact layout preflight)
+- Inference Serving: skipped (runtime smoke executor disabled for this candidate)
 
 ## Next Actions
 

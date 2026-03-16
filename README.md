@@ -13,8 +13,8 @@ Kiln is an experimental local web app. It helps you point at a model repo, pick 
 - Automates:
   - benchmarks via `lm-eval-harness`
   - safety prompt suites against a locally served candidate runtime
-  - documentation checks
-  - packaging preflight
+  - documentation checks for release-facing repo docs
+  - packaging preflight for candidate artifact layout
   - optional serving smoke checks
 - Allows manual safety override with reviewer notes
 - Writes Markdown and JSON reports into `.kiln/reports/`
@@ -41,6 +41,18 @@ Project-backed runs use five pre-release gates:
 | `serving` | Automated when the selected candidate enables it |
 
 Legacy `v1` configs still load, but packaging and serving automation require the candidate-aware `v2` config shape.
+
+Current gate detail:
+
+- `documentation`
+  - requires `README.md`
+  - requires `## Usage`, `## Limitations`, and `## Evaluation Summary` in the README
+  - recommends `MODEL_CARD.md` with `## Intended Use`, `## Limitations`, and `## Evaluation Data`
+- `packaging`
+  - `hf` candidates must resolve to a directory with `config.json` and at least one weight file
+  - `hf` candidates warn if tokenizer assets are missing
+  - `gguf` candidates must resolve to a `.gguf` file or a directory containing `.gguf` files
+  - the repo warns if `LICENSE` is missing
 
 ## Quickstart
 
@@ -105,6 +117,7 @@ Key points:
 - Candidate format and runtime are explicit.
 - Safety policy stays explicit in the repo config.
 - Report artifacts are written into the repo.
+- Docs and packaging gates are file-system based. Kiln checks what is on disk, not what you meant to ship.
 
 ```yaml
 version: 2
@@ -201,8 +214,8 @@ python -m py_compile api_server.py kiln_backend/models.py kiln_backend/storage.p
 
 - Local single-user only
 - Safety automation is a configurable prompt suite, not a comprehensive safety benchmark harness
-- Documentation checks are basic repo checks, not deep content review
-- Packaging is a preflight check, not a publish step
+- Documentation checks validate structure and release-facing sections, not the truth or quality of the prose
+- Packaging is a format-aware preflight check, not a publish or upload step
 - Serving is a smoke test, not a load or throughput benchmark
 - No artifact download, sync, or conversion
 - No browser E2E test is currently checked in

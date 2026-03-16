@@ -38,15 +38,17 @@ def evaluate_benchmark_payload(
 
 
 def evaluate_documentation_payload(payload: dict) -> str:
-    if payload.get("missing_required_files"):
+    if payload.get("missing_required_files") or payload.get("missing_required_readme_sections"):
         return "failed"
-    if payload.get("missing_recommended_files") or payload.get("missing_recommended_sections"):
+    if payload.get("missing_recommended_files") or payload.get(
+        "missing_recommended_model_card_sections"
+    ):
         return "warning"
     return "passed"
 
 
 def evaluate_packaging_payload(payload: dict) -> str:
-    if not payload.get("artifact_exists"):
+    if not payload.get("artifact_exists") or payload.get("missing_required_files"):
         return "failed"
     if payload.get("missing_recommended_files"):
         return "warning"

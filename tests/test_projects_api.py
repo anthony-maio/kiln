@@ -206,6 +206,27 @@ def build_safety_config():
     }
 
 
+def write_release_ready_docs(repo_root: Path):
+    (repo_root / "README.md").write_text(
+        (
+            "# Demo\n\n"
+            "## Usage\nRun it.\n\n"
+            "## Limitations\nStill early.\n\n"
+            "## Evaluation Summary\nHellaSwag: 80.0\n"
+        ),
+        encoding="utf-8",
+    )
+    (repo_root / "MODEL_CARD.md").write_text(
+        (
+            "# Model Card\n\n"
+            "## Intended Use\nText.\n\n"
+            "## Limitations\nStill early.\n\n"
+            "## Evaluation Data\nHellaSwag.\n"
+        ),
+        encoding="utf-8",
+    )
+
+
 def create_project(client, root_path):
     response = client.post("/api/projects", json={"root_path": str(root_path)})
     assert response.status_code == 201
@@ -218,6 +239,9 @@ def materialize_candidate_paths(repo_root, payload):
         candidate_path.parent.mkdir(parents=True, exist_ok=True)
         if candidate["format"] == "hf":
             candidate_path.mkdir(parents=True, exist_ok=True)
+            (candidate_path / "config.json").write_text("{}", encoding="utf-8")
+            (candidate_path / "model.safetensors").write_text("weights", encoding="utf-8")
+            (candidate_path / "tokenizer.json").write_text("{}", encoding="utf-8")
         else:
             candidate_path.write_text("fake gguf payload", encoding="utf-8")
 
@@ -454,11 +478,7 @@ def test_project_run_creates_job_writes_reports_and_keeps_required_manual_stages
     module = load_app(tmp_path, monkeypatch, adapter_dry_run=True)
     repo_root = tmp_path / "project-run-repo"
     repo_root.mkdir()
-    (repo_root / "README.md").write_text(
-        "# Demo\n\n## Usage\nRun it.\n\n## Limitations\nStill early.\n",
-        encoding="utf-8",
-    )
-    (repo_root / "MODEL_CARD.md").write_text("# Model Card\n", encoding="utf-8")
+    write_release_ready_docs(repo_root)
     (repo_root / "LICENSE").write_text("MIT", encoding="utf-8")
 
     with TestClient(module.app) as client:
@@ -509,11 +529,7 @@ def test_v2_project_run_automates_docs_and_packaging_and_skips_disabled_serving(
     module = load_app(tmp_path, monkeypatch, adapter_dry_run=True)
     repo_root = tmp_path / "candidate-pipeline-repo"
     repo_root.mkdir()
-    (repo_root / "README.md").write_text(
-        "# Demo\n\n## Usage\nRun it.\n\n## Limitations\nStill early.\n",
-        encoding="utf-8",
-    )
-    (repo_root / "MODEL_CARD.md").write_text("# Model Card\n", encoding="utf-8")
+    write_release_ready_docs(repo_root)
     (repo_root / "LICENSE").write_text("MIT", encoding="utf-8")
 
     with TestClient(module.app) as client:
@@ -569,11 +585,7 @@ def test_v2_project_run_defaults_serving_required_when_candidate_enabled(
     )
     repo_root = tmp_path / "candidate-serving-default-repo"
     repo_root.mkdir()
-    (repo_root / "README.md").write_text(
-        "# Demo\n\n## Usage\nRun it.\n\n## Limitations\nStill early.\n",
-        encoding="utf-8",
-    )
-    (repo_root / "MODEL_CARD.md").write_text("# Model Card\n", encoding="utf-8")
+    write_release_ready_docs(repo_root)
     (repo_root / "LICENSE").write_text("MIT", encoding="utf-8")
 
     with TestClient(module.app) as client:
@@ -609,11 +621,7 @@ def test_v2_project_run_automates_safety_when_configured(tmp_path, monkeypatch):
     module = load_app(tmp_path, monkeypatch, adapter_dry_run=True)
     repo_root = tmp_path / "candidate-safety-repo"
     repo_root.mkdir()
-    (repo_root / "README.md").write_text(
-        "# Demo\n\n## Usage\nRun it.\n\n## Limitations\nStill early.\n",
-        encoding="utf-8",
-    )
-    (repo_root / "MODEL_CARD.md").write_text("# Model Card\n", encoding="utf-8")
+    write_release_ready_docs(repo_root)
     (repo_root / "LICENSE").write_text("MIT", encoding="utf-8")
 
     import kiln_backend.jobs as jobs_module
