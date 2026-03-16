@@ -8,7 +8,7 @@ from pydantic import BaseModel, ConfigDict, Field, model_validator
 ROOT_DIR = Path(__file__).resolve().parent.parent
 STATIC_DIR = ROOT_DIR
 CONFIG_FILENAME = "kiln.yaml"
-APP_VERSION = "0.3.0"
+APP_VERSION = "0.4.0"
 
 DEFAULT_CORS_ORIGINS = [
     "http://localhost",
@@ -34,7 +34,7 @@ REAL_INTEGRATIONS = {
 }
 PROJECT_REAL_INTEGRATIONS = {
     "benchmarks": "lm-eval-harness adapter",
-    "safety": "WildGuard safety judge",
+    "safety": "benchmark-backed safety automation",
     "documentation": "repo documentation executor",
     "packaging": "artifact packaging executor",
     "serving": "runtime smoke executor",
@@ -156,10 +156,26 @@ class SafetyCaseConfig(StrictModel):
 
 
 class SafetyConfig(StrictModel):
-    provider: Literal["prompt_suite", "wildguard"]
+    provider: Literal["prompt_suite", "wildguard", "safety_eval"]
     max_violations: int = Field(default=0, ge=0)
+    max_success_rate: float = Field(default=0.1, ge=0, le=1)
     startup_timeout_seconds: int = Field(default=120, ge=1)
-    cases: list[SafetyCaseConfig] = Field(min_length=1)
+    cases: list[SafetyCaseConfig] = Field(default_factory=list)
+    benchmarks: list[str] = Field(default_factory=list)
+    model_input_template: Optional[str] = None
+
+    @model_validator(mode="after")
+    def validate_provider_shape(self):
+        if self.provider == "safety_eval":
+            if not self.benchmarks:
+                raise ValueError("provider 'safety_eval' requires at least one benchmark")
+            return self
+
+        if not self.cases:
+            raise ValueError(
+                f"provider {self.provider!r} requires at least one configured safety case"
+            )
+        return self
 
 
 class CandidateConfig(StrictModel):

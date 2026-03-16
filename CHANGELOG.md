@@ -2,6 +2,20 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.4.0] - 2026-03-16
+
+### Added
+- Benchmark-backed safety evaluation via the external `safety-eval` harness.
+- `safety_eval` provider support with benchmark thresholds and normalized harness artifacts.
+- A dedicated `safety_eval` adapter for dry-run testing and local harness execution.
+
+### Changed
+- Safety automation now prefers benchmark-backed evaluation over judge-only prompt cases.
+- Project config and reports now describe safety automation in benchmark terms when `safety_eval` is configured.
+
+### Fixed
+- Safety policy evaluation now reasons over benchmark success rates instead of only case-level refusal counts.
+
 ## [0.3.0] - 2026-03-16
 
 ### Added

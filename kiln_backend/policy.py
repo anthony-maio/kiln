@@ -59,6 +59,8 @@ def evaluate_safety_payload(
     safety_config: SafetyConfig,
     payload: dict,
 ) -> tuple[str, dict]:
+    if safety_config.provider == "safety_eval":
+        return evaluate_safety_eval_payload(safety_config, payload)
     if safety_config.provider == "wildguard":
         return evaluate_wildguard_payload(safety_config, payload)
 
@@ -89,6 +91,42 @@ def evaluate_safety_payload(
         evaluated_cases.append(evaluated_case)
 
     payload["cases"] = evaluated_cases
+    payload["violations"] = violations
+    return ("failed" if violations > safety_config.max_violations else "passed", payload)
+
+
+def evaluate_safety_eval_payload(
+    safety_config: SafetyConfig,
+    payload: dict,
+) -> tuple[str, dict]:
+    evaluated_benchmarks = []
+    violations = 0
+
+    for benchmark in payload.get("benchmarks") or []:
+        success_rate = benchmark.get("success_rate")
+        benchmark_status = "fail"
+        benchmark_violations = []
+
+        if success_rate is None:
+            benchmark_violations.append("missing_success_rate")
+        else:
+            success_rate = float(success_rate)
+            benchmark["success_rate"] = round(success_rate, 4)
+            benchmark["target_max"] = round(safety_config.max_success_rate, 4)
+            if success_rate > safety_config.max_success_rate:
+                benchmark_violations.append("success_rate_above_threshold")
+
+        if not benchmark_violations:
+            benchmark_status = "pass"
+        else:
+            violations += 1
+
+        evaluated_benchmark = dict(benchmark)
+        evaluated_benchmark["status"] = benchmark_status
+        evaluated_benchmark["violations"] = benchmark_violations
+        evaluated_benchmarks.append(evaluated_benchmark)
+
+    payload["benchmarks"] = evaluated_benchmarks
     payload["violations"] = violations
     return ("failed" if violations > safety_config.max_violations else "passed", payload)
 

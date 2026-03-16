@@ -3,6 +3,7 @@ from __future__ import annotations
 import json
 import socket
 import subprocess
+import sys
 import time
 from pathlib import Path
 from urllib import request
@@ -88,6 +89,78 @@ def classify_with_wildguard(items: list[dict]) -> list[dict]:
     return classifier.classify(items)
 
 
+def resolve_candidate_path(project_root: Path, candidate: CandidateConfig) -> Path:
+    candidate_path = Path(candidate.path).expanduser()
+    if candidate_path.is_absolute():
+        return candidate_path.resolve()
+    return (project_root / candidate_path).resolve()
+
+
+def execute_safety_eval_stage(
+    *,
+    project_root: Path,
+    run_id: int,
+    candidate: CandidateConfig,
+    safety_config: SafetyConfig,
+    log_path: Path,
+    artifact_path: Path,
+) -> StageExecutionResult:
+    if candidate.format != "hf":
+        raise ValueError("provider 'safety_eval' currently supports hf candidates only")
+
+    candidate_path = resolve_candidate_path(project_root, candidate)
+    root_dir = Path(__file__).resolve().parents[2]
+    adapter_path = root_dir / "adapters" / "safety_eval_adapter.py"
+    command = [
+        sys.executable,
+        str(adapter_path),
+        "--model-path",
+        str(candidate_path),
+        "--artifact-path",
+        str(artifact_path),
+        "--benchmarks",
+        ",".join(safety_config.benchmarks),
+    ]
+    if safety_config.model_input_template:
+        command.extend(["--model-input-template", safety_config.model_input_template])
+
+    with log_path.open("a", encoding="utf-8") as handle:
+        try:
+            completed = subprocess.run(
+                command,
+                stdout=handle,
+                stderr=subprocess.STDOUT,
+                text=True,
+                check=False,
+                timeout=safety_config.startup_timeout_seconds,
+            )
+        except subprocess.TimeoutExpired as exc:
+            raise RuntimeError("safety_eval adapter timed out") from exc
+
+    if completed.returncode != 0:
+        raise RuntimeError("safety_eval adapter failed")
+
+    payload = json.loads(artifact_path.read_text(encoding="utf-8"))
+    status, evaluated_results = evaluate_safety_payload(safety_config, payload)
+    logs = (
+        "safety-eval benchmark run completed with "
+        f"{evaluated_results['violations']} violation(s)."
+    )
+    final_payload = {
+        "status": status,
+        "results": evaluated_results,
+        "logs": logs,
+    }
+    write_payload(artifact_path, final_payload)
+    return {
+        "status": status,
+        "payload": final_payload,
+        "artifact_path": str(artifact_path),
+        "log_path": str(log_path),
+        "error": None,
+    }
+
+
 def execute_safety_stage(
     *,
     project_root: Path,
@@ -100,8 +173,39 @@ def execute_safety_stage(
     models_url_override: str | None = None,
     chat_url_override: str | None = None,
 ) -> StageExecutionResult:
-    runtime = resolve_runtime_for_candidate(candidate)
     log_path, artifact_path = stage_output_paths(project_root, run_id, "safety")
+    if safety_config.provider == "safety_eval":
+        try:
+            return execute_safety_eval_stage(
+                project_root=project_root,
+                run_id=run_id,
+                candidate=candidate,
+                safety_config=safety_config,
+                log_path=log_path,
+                artifact_path=artifact_path,
+            )
+        except (FileNotFoundError, RuntimeError, ValueError, OSError) as exc:
+            payload = {
+                "status": "failed",
+                "results": {
+                    "provider": safety_config.provider,
+                    "candidate_format": candidate.format,
+                    "benchmarks": [],
+                    "violations": 0,
+                    "allowed_violations": safety_config.max_violations,
+                },
+                "logs": str(exc),
+            }
+            write_payload(artifact_path, payload)
+            return {
+                "status": "failed",
+                "payload": payload,
+                "artifact_path": str(artifact_path),
+                "log_path": str(log_path),
+                "error": str(exc),
+            }
+
+    runtime = resolve_runtime_for_candidate(candidate)
     port = port_override or find_free_port()
     readiness_url = readiness_url_override or f"http://127.0.0.1:{port}/v1/models"
     models_url = models_url_override or readiness_url

@@ -10,11 +10,12 @@ Verdict: NEEDS_REVIEW
 ## Stage Status
 
 - Academic Benchmarks: passed (real-adapter)
-- Safety Evaluation: passed (WildGuard-backed runtime evaluation)
+- Safety Evaluation: passed (safety-eval benchmark harness)
 - Documentation: passed (README + model card checks)
 - Packaging & Distribution: passed (artifact layout preflight)
 - Inference Serving: skipped (runtime smoke executor disabled for this candidate)
 
 ## Next Actions
 
+- Review any warning-level safety benchmarks before release, even if the overall gate passed.
 - Review the skipped serving gate if this candidate is meant to be deployed locally.

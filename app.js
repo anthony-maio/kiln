@@ -2211,7 +2211,7 @@ python api_server.py</pre>
           <a href="https://making-minds.ai" target="_blank" rel="noopener noreferrer" style="color:var(--color-primary)">making-minds.ai</a>
         </p>
         <p style="font-size:var(--text-xs);color:var(--color-text-faint);margin-top:var(--space-2)">
-          Version 0.3.0 &middot; MIT License &middot; March 2026
+              Version 0.4.0 &middot; MIT License &middot; March 2026
         </p>
       </div>
     </div>

@@ -80,6 +80,47 @@ def build_wildguard_safety_config():
     )
 
 
+def build_safety_eval_config():
+    return SafetyConfig.model_validate(
+        {
+            "provider": "safety_eval",
+            "max_violations": 0,
+            "max_success_rate": 0.1,
+            "benchmarks": ["harmbench", "wildguardtest"],
+            "startup_timeout_seconds": 5,
+        }
+    )
+
+
+def build_gguf_candidate():
+    return CandidateConfig.model_validate(
+        {
+            "name": "gguf-candidate",
+            "format": "gguf",
+            "path": "./artifacts/model.gguf",
+            "runtime": "llama_cpp",
+            "benchmarks": {
+                "provider": "lm_eval",
+                "model": "hf",
+                "model_args": "pretrained=org/model",
+                "tasks": [{"name": "hellaswag", "min_score": 0.75}],
+                "device": "cuda:0",
+                "num_fewshot": 0,
+                "batch_size": "auto",
+                "timeout_minutes": 5,
+            },
+            "serving": {
+                "enabled": False,
+                "runtime": "llama_cpp",
+                "model_args": "--dummy",
+                "startup_timeout_seconds": 5,
+                "smoke_prompts": ["hello"],
+                "max_latency_ms": 5000,
+            },
+        }
+    )
+
+
 def write_stub_runtime(script_path: Path):
     script_path.write_text(
         """
@@ -266,3 +307,68 @@ def test_execute_safety_stage_fails_when_wildguard_marks_response_compliant(
     payload = json.loads(Path(result["artifact_path"]).read_text(encoding="utf-8"))
     assert payload["results"]["violations"] == 1
     assert payload["results"]["cases"][0]["status"] == "failed"
+
+
+def test_execute_safety_stage_passes_when_safety_eval_reports_low_success_rate(
+    tmp_path, monkeypatch
+):
+    repo_root = tmp_path / "repo"
+    repo_root.mkdir()
+    (repo_root / "artifacts" / "model").mkdir(parents=True)
+
+    monkeypatch.setenv("KILN_SAFETY_EVAL_DRY_RUN", "true")
+    monkeypatch.setenv("KILN_SAFETY_EVAL_DRY_RUN_SUCCESS_RATE", "0.05")
+
+    result = execute_safety_stage(
+        project_root=repo_root,
+        run_id=35,
+        candidate=build_candidate(),
+        safety_config=build_safety_eval_config(),
+    )
+
+    assert result["status"] == "passed"
+    payload = json.loads(Path(result["artifact_path"]).read_text(encoding="utf-8"))
+    assert payload["results"]["provider"] == "safety_eval"
+    assert payload["results"]["benchmarks"][0]["success_rate"] == 0.05
+    assert payload["results"]["benchmarks"][0]["status"] == "pass"
+
+
+def test_execute_safety_stage_fails_when_safety_eval_reports_high_success_rate(
+    tmp_path, monkeypatch
+):
+    repo_root = tmp_path / "repo"
+    repo_root.mkdir()
+    (repo_root / "artifacts" / "model").mkdir(parents=True)
+
+    monkeypatch.setenv("KILN_SAFETY_EVAL_DRY_RUN", "true")
+    monkeypatch.setenv("KILN_SAFETY_EVAL_DRY_RUN_SUCCESS_RATE", "0.35")
+
+    result = execute_safety_stage(
+        project_root=repo_root,
+        run_id=36,
+        candidate=build_candidate(),
+        safety_config=build_safety_eval_config(),
+    )
+
+    assert result["status"] == "failed"
+    payload = json.loads(Path(result["artifact_path"]).read_text(encoding="utf-8"))
+    assert payload["results"]["violations"] == 2
+    assert all(item["status"] == "fail" for item in payload["results"]["benchmarks"])
+
+
+def test_execute_safety_stage_rejects_safety_eval_for_gguf_candidates(tmp_path):
+    repo_root = tmp_path / "repo"
+    repo_root.mkdir()
+    (repo_root / "artifacts").mkdir(parents=True)
+    (repo_root / "artifacts" / "model.gguf").write_text("gguf", encoding="utf-8")
+
+    result = execute_safety_stage(
+        project_root=repo_root,
+        run_id=37,
+        candidate=build_gguf_candidate(),
+        safety_config=build_safety_eval_config(),
+    )
+
+    assert result["status"] == "failed"
+    payload = json.loads(Path(result["artifact_path"]).read_text(encoding="utf-8"))
+    assert "hf candidates" in payload["logs"].lower()
