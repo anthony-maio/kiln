@@ -2,21 +2,25 @@
 
 All notable changes to this project will be documented in this file.
 
-## [0.3.0-rc1] - 2026-03-14
+## [0.3.0] - 2026-03-16
 
 ### Added
 - Candidate-aware `v2` project configs with one-candidate-per-run execution.
-- Executor-driven pre-release pipeline for benchmarks, documentation, packaging, serving, and configurable safety prompt suites.
+- Executor-driven pre-release pipeline for benchmarks, documentation, packaging, serving, and configurable safety automation.
 - Repo-local stage artifacts and logs for executor-backed project runs.
-- Automated tests for documentation, packaging, serving, stage execution, project runs, and safety prompt suites.
+- Automated tests for documentation, packaging, serving, stage execution, project runs, and safety automation.
+- WildGuard-backed safety evaluation for configured harmful prompt cases.
+- Stronger documentation and packaging gate checks for release-shaped repos.
 
 ### Changed
 - Shifted Kiln from a dashboard-first demo to a projects-first local release workspace.
 - Release reports now mark a stage as integrated based on jobs actually queued for that run, avoiding false manual/automated labeling.
-- The project editor now supports explicit safety suite JSON and treats manual safety decisions as overrides when automation is configured.
+- The project editor now supports explicit safety configuration and treats manual safety decisions as overrides when automation is configured.
+- Documentation now requires release-facing README sections and warns on incomplete model cards.
+- Packaging now validates format-specific artifact layout for `hf` and `gguf` candidates.
 
 ### Fixed
-- Project runs no longer rely on manual safety as the default when a safety suite is configured.
+- Project runs no longer rely on manual safety as the default when safety automation is configured.
 - Release reports and UI copy now match the actual shipped automation surface.
 
 ## [0.2.0] - 2026-03-13
