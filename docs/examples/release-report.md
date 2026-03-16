@@ -10,7 +10,7 @@ Verdict: NEEDS_REVIEW
 ## Stage Status
 
 - Academic Benchmarks: passed (real-adapter)
-- Safety Evaluation: passed (runtime-backed prompt suite)
+- Safety Evaluation: passed (WildGuard-backed runtime evaluation)
 - Documentation: passed (README + model card checks)
 - Packaging & Distribution: passed (artifact layout preflight)
 - Inference Serving: skipped (runtime smoke executor disabled for this candidate)

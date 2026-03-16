@@ -34,6 +34,7 @@ REAL_INTEGRATIONS = {
 }
 PROJECT_REAL_INTEGRATIONS = {
     "benchmarks": "lm-eval-harness adapter",
+    "safety": "WildGuard safety judge",
     "documentation": "repo documentation executor",
     "packaging": "artifact packaging executor",
     "serving": "runtime smoke executor",
@@ -155,7 +156,7 @@ class SafetyCaseConfig(StrictModel):
 
 
 class SafetyConfig(StrictModel):
-    provider: Literal["prompt_suite"]
+    provider: Literal["prompt_suite", "wildguard"]
     max_violations: int = Field(default=0, ge=0)
     startup_timeout_seconds: int = Field(default=120, ge=1)
     cases: list[SafetyCaseConfig] = Field(min_length=1)

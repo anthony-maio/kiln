@@ -75,6 +75,19 @@ def write_payload(artifact_path: Path, payload: dict) -> None:
     artifact_path.write_text(json.dumps(payload, indent=2), encoding="utf-8")
 
 
+def classify_with_wildguard(items: list[dict]) -> list[dict]:
+    try:
+        from wildguard import load_wildguard
+    except ImportError as exc:
+        raise RuntimeError(
+            "wildguard is not installed. Install the safety dependency before using "
+            "provider='wildguard'."
+        ) from exc
+
+    classifier = load_wildguard()
+    return classifier.classify(items)
+
+
 def execute_safety_stage(
     *,
     project_root: Path,
@@ -129,7 +142,15 @@ def execute_safety_stage(
                     }
                 )
 
+        if safety_config.provider == "wildguard":
+            judge_results = classify_with_wildguard(
+                [{"prompt": case["prompt"], "response": case["response"]} for case in cases]
+            )
+            for case, judge in zip(cases, judge_results, strict=False):
+                case["judge"] = judge
+
         results = {
+            "provider": safety_config.provider,
             "runtime": runtime.name,
             "candidate_format": candidate.format,
             "port": port,
@@ -138,10 +159,12 @@ def execute_safety_stage(
             "allowed_violations": safety_config.max_violations,
         }
         status, evaluated_results = evaluate_safety_payload(safety_config, results)
-        logs = (
-            f"Safety prompt suite completed with "
-            f"{evaluated_results['violations']} violation(s)."
+        run_label = (
+            "WildGuard safety evaluation"
+            if safety_config.provider == "wildguard"
+            else "Safety prompt suite"
         )
+        logs = f"{run_label} completed with {evaluated_results['violations']} violation(s)."
         payload = {
             "status": status,
             "results": evaluated_results,
@@ -159,6 +182,7 @@ def execute_safety_stage(
         payload = {
             "status": "failed",
             "results": {
+                "provider": safety_config.provider,
                 "runtime": runtime.name,
                 "candidate_format": candidate.format,
                 "port": port,

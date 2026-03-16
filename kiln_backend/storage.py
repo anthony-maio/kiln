@@ -387,7 +387,7 @@ def build_project_stage_plan(
             status = "skipped"
             logs = "Skipped per project config."
         elif stage_key == "safety":
-            logs = "Manual completion required because no safety prompt suite is configured."
+            logs = "Manual completion required because no safety automation is configured."
         elif stage_key == "documentation":
             job_required = True
             logs = "Queued for the local job runner."
